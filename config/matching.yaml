@@ -1,0 +1,51 @@
+# Matching configuration for question search
+
+exact_match:
+  enabled: true
+  criteria:
+    perceptual_hash:
+      max_distance: 5  # Hamming distance threshold (0-256)
+
+content_match:
+  enabled: true
+
+  # Stage 1: Vector similarity retrieval
+  stage1:
+    text_similarity_threshold: 0.75  # Cosine similarity threshold (0-1)
+    top_k: 100  # Number of candidates to retrieve
+
+  # Stage 2: Detailed text matching
+  stage2:
+    required_conditions:
+      stem_match:
+        enabled: true
+        max_edit_distance: 3  # Levenshtein distance threshold
+      options_match:
+        enabled: true
+        order_independent: true  # ["A","B","C"] matches ["C","B","A"]
+      question_type_match:
+        enabled: true  # Require same question type
+
+    optional_conditions:
+      formula_match:
+        enabled: false
+        weight: 0.15
+      visual_similarity:
+        enabled: false
+        weight: 0.05
+
+  # Final scoring
+  scoring:
+    method: weighted_sum
+    required_weight: 0.8
+    optional_weight: 0.2
+    threshold: 0.85  # Final score threshold (0-1)
+
+# Output configuration
+output:
+  top_k: 10  # Max results per match type
+  grouping:
+    by_match_type: true
+  include_details:
+    feature_scores: true
+    debug_info: false

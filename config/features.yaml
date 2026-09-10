@@ -1,0 +1,45 @@
+# Text feature extraction configuration
+
+text:
+  components:
+    stem:
+      enabled: true
+      weight: 0.6
+    options:
+      enabled: true
+      weight: 0.3
+      normalization:
+        - remove_whitespace
+        - normalize_punctuation
+        - sort
+    formulas:
+      enabled: false
+      weight: 0.1
+
+  encoding:
+    chinese_model: hfl/chinese-roberta-wwm-ext
+    english_model: sentence-transformers/all-mpnet-base-v2
+    embedding_dim: 768
+
+image:
+  components:
+    perceptual_hash:
+      enabled: true
+      algorithm: dHash  # Options: dHash, pHash, aHash
+      hash_size: 16
+    deep_features:
+      enabled: true
+      model: efficientnet_b4  # Options: efficientnet_b4, resnet50
+      output_dim: 512
+
+  batch_size: 128
+
+ocr:
+  engine: paddleocr
+  languages:
+    - ch
+    - en
+  confidence_threshold: 0.5
+
+metadata:
+  question_type_detection: true

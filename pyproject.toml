@@ -1,0 +1,44 @@
+[project]
+name = "qsearch"
+version = "0.1.0"
+description = "Question image search engine with OCR and vector similarity"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "faiss-cpu>=1.7.4; sys_platform == 'win32'",
+    "faiss-gpu>=1.7.4; sys_platform == 'linux'",
+    "paddleocr>=2.7.0",
+    # paddleocr needs the separate paddlepaddle runtime. The CPU build is the
+    # portable default; for GPU run: uv run scripts/install_paddle.py --gpu
+    "paddlepaddle==3.0.0",
+    "pix2tex[api]>=0.1.2",
+    "transformers>=4.30.0",
+    "sentence-transformers>=2.2.0",
+    "opencv-python>=4.8.0",
+    "Pillow>=10.0.0",
+    "imagehash>=4.3.1",
+    "pyyaml>=6.0",
+    "numpy>=1.24.0",
+    "tqdm>=4.65.0",
+    "psutil>=5.9.0",  # memory-aware worker sizing
+    "scikit-image>=0.21.0",
+    "python-Levenshtein>=0.21.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qsearch"]
+
+[tool.hatch.build]
+src-layout = true
