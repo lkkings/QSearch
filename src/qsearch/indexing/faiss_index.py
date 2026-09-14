@@ -1,6 +1,7 @@
 """Faiss index builder for text vector similarity search.
 
-Builds and manages Faiss IndexFlatIP for exact cosine similarity search.
+Supports Flat (exact), IVFFlat, IVFPQ and HNSW indexes. All use inner product
+on L2-normalized vectors, which is equivalent to cosine similarity.
 """
 
 import logging
@@ -16,11 +17,26 @@ logger = logging.getLogger(__name__)
 class FaissIndexBuilder:
     """Builds and manages Faiss index for text vectors."""
 
+    #: Index types this builder knows how to create.
+    SUPPORTED_TYPES = ('Flat', 'IVFFlat', 'IVFPQ', 'HNSW')
+
+    # Faiss wants at least this many training vectors per centroid before it
+    # stops warning about an under-trained quantizer.
+    MIN_VECTORS_PER_CENTROID = 39
+
     def __init__(
         self,
         dimension: int = 768,
         use_gpu: bool = True,
-        gpu_id: int = 0
+        gpu_id: int = 0,
+        index_type: str = 'Flat',
+        nlist: int = 100,
+        nprobe: int = 10,
+        m_pq: int = 16,
+        nbits: int = 8,
+        hnsw_m: int = 16,
+        ef_construction: int = 40,
+        ef_search: int = 32
     ):
         """Initialize Faiss index builder.
 
@@ -28,10 +44,41 @@ class FaissIndexBuilder:
             dimension: Vector dimension (default 768 for BERT/RoBERTa)
             use_gpu: Whether to use GPU acceleration
             gpu_id: GPU device ID
+            index_type: One of Flat, IVFFlat, IVFPQ, HNSW
+            nlist: Number of Voronoi cells (IVFFlat, IVFPQ)
+            nprobe: Cells visited per query (IVFFlat, IVFPQ)
+            m_pq: Product quantizer sub-vector count (IVFPQ); must divide dimension
+            nbits: Bits per PQ sub-quantizer (IVFPQ)
+            hnsw_m: Neighbours per node in the HNSW graph
+            ef_construction: HNSW build-time candidate list size
+            ef_search: HNSW query-time candidate list size
+
+        Raises:
+            ValueError: If index_type is unknown or m_pq does not divide dimension
         """
+        if index_type not in self.SUPPORTED_TYPES:
+            raise ValueError(
+                f"Unknown index_type {index_type!r}. "
+                f"Supported: {', '.join(self.SUPPORTED_TYPES)}"
+            )
+
+        if index_type == 'IVFPQ' and dimension % m_pq != 0:
+            raise ValueError(
+                f"m_pq={m_pq} must divide dimension={dimension} for IVFPQ"
+            )
+
         self.dimension = dimension
         self.use_gpu = use_gpu and faiss.get_num_gpus() > 0
         self.gpu_id = gpu_id
+
+        self.index_type = index_type
+        self.nlist = nlist
+        self.nprobe = nprobe
+        self.m_pq = m_pq
+        self.nbits = nbits
+        self.hnsw_m = hnsw_m
+        self.ef_construction = ef_construction
+        self.ef_search = ef_search
 
         self.index = None
         self.id_map = []  # Maps index position to image ID
@@ -39,9 +86,8 @@ class FaissIndexBuilder:
         self._build_index()
 
     def _build_index(self):
-        """Build Faiss index."""
-        # Create CPU index (IndexFlatIP for inner product = cosine similarity with normalized vectors)
-        cpu_index = faiss.IndexFlatIP(self.dimension)
+        """Build Faiss index according to index_type."""
+        cpu_index = self._create_cpu_index()
 
         if self.use_gpu:
             try:
@@ -55,7 +101,43 @@ class FaissIndexBuilder:
                 self.use_gpu = False
         else:
             self.index = cpu_index
-            logger.info("Created CPU Faiss index")
+            logger.info(f"Created CPU Faiss index ({self.index_type})")
+
+    def _create_cpu_index(self) -> faiss.Index:
+        """Create the CPU-side index for the configured type.
+
+        All variants use inner product so that L2-normalized vectors give
+        cosine similarity.
+
+        Returns:
+            An untrained Faiss index
+        """
+        if self.index_type == 'Flat':
+            return faiss.IndexFlatIP(self.dimension)
+
+        if self.index_type == 'IVFFlat':
+            quantizer = faiss.IndexFlatIP(self.dimension)
+            index = faiss.IndexIVFFlat(
+                quantizer, self.dimension, self.nlist, faiss.METRIC_INNER_PRODUCT
+            )
+            index.nprobe = self.nprobe
+            return index
+
+        if self.index_type == 'IVFPQ':
+            quantizer = faiss.IndexFlatIP(self.dimension)
+            index = faiss.IndexIVFPQ(
+                quantizer, self.dimension, self.nlist, self.m_pq, self.nbits
+            )
+            index.nprobe = self.nprobe
+            return index
+
+        # HNSW
+        index = faiss.IndexHNSWFlat(
+            self.dimension, self.hnsw_m, faiss.METRIC_INNER_PRODUCT
+        )
+        index.hnsw.efConstruction = self.ef_construction
+        index.hnsw.efSearch = self.ef_search
+        return index
 
     def add_vectors(
         self,
@@ -73,14 +155,50 @@ class FaissIndexBuilder:
 
         # Normalize vectors for cosine similarity
         vectors = self._normalize_vectors(vectors)
+        vectors = vectors.astype(np.float32)
 
-        # Add to index
-        self.index.add(vectors.astype(np.float32))
+        # IVF variants must be trained before they accept vectors. Training on
+        # the same set we are about to add is standard for a one-shot build.
+        if not self.index.is_trained:
+            self._train(vectors)
+
+        self.index.add(vectors)
 
         # Update ID map
         self.id_map.extend(ids)
 
         logger.info(f"Added {len(vectors)} vectors to index. Total: {self.index.ntotal}")
+
+    def _train(self, vectors: np.ndarray):
+        """Train the quantizer of an IVF index.
+
+        Faiss needs roughly 39 vectors per centroid. With fewer vectors it still
+        trains but logs a warning and produces poorly balanced cells, so nlist is
+        reduced to fit the data rather than leaving a degenerate index behind.
+
+        Args:
+            vectors: Normalized float32 training vectors
+        """
+        n = len(vectors)
+        max_centroids = max(1, n // self.MIN_VECTORS_PER_CENTROID)
+
+        if self.nlist > max_centroids:
+            logger.warning(
+                f"nlist={self.nlist} is too large for {n} vectors; "
+                f"reducing to {max_centroids}"
+            )
+            self.nlist = max_centroids
+            self.index = self._create_cpu_index()
+            if self.use_gpu:
+                try:
+                    res = faiss.StandardGpuResources()
+                    self.index = faiss.index_cpu_to_gpu(res, self.gpu_id, self.index)
+                except Exception as e:
+                    logger.warning(f"Failed to move rebuilt index to GPU: {e}")
+                    self.use_gpu = False
+
+        logger.info(f"Training {self.index_type} index on {n} vectors")
+        self.index.train(vectors)
 
     def search(
         self,
@@ -216,3 +334,36 @@ class FaissIndexBuilder:
             'gpu_id': self.gpu_id if self.use_gpu else None,
             'memory_bytes': self.index.ntotal * self.dimension * 4  # Approximate
         }
+
+    def apply_search_params(self):
+        """Apply search-time parameters to the loaded index.
+
+        Must be called after load() to restore nprobe/efSearch settings, since
+        loading from disk overwrites the index object and discards constructor params.
+
+        Only affects index types that have search-time tuning knobs: IVF* for nprobe,
+        HNSW for efSearch. Flat indexes have no search-time parameters.
+        """
+        if self.index is None:
+            return
+
+        # Extract the CPU index for parameter setting
+        cpu_index = self.index
+        if self.use_gpu:
+            try:
+                cpu_index = faiss.index_gpu_to_cpu(self.index)
+            except Exception:
+                pass  # Already CPU or extraction failed, work with what we have
+
+        # Apply IVF nprobe (for IVFFlat, IVFPQ)
+        if hasattr(cpu_index, 'nprobe'):
+            cpu_index.nprobe = self.nprobe
+            logger.debug(f"Applied nprobe={self.nprobe} to {self.index_type} index")
+
+        # Apply HNSW efSearch
+        if hasattr(cpu_index, 'hnsw') and hasattr(cpu_index.hnsw, 'efSearch'):
+            cpu_index.hnsw.efSearch = self.ef_search
+            logger.debug(f"Applied efSearch={self.ef_search} to HNSW index")
+
+        # If we extracted to CPU, we don't need to move back since the changes
+        # apply to the underlying index object referenced by both GPU and CPU wrappers

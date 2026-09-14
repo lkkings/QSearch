@@ -25,35 +25,14 @@ CONSERVATIVE_PRESET = {
                 "text_similarity_threshold": 0.85,
                 "top_k": 50  # Fewer candidates
             },
-            "stage2": {
-                "required_conditions": {
-                    "stem_match": {
-                        "enabled": True,
-                        "max_edit_distance": 2  # Very low tolerance
-                    },
-                    "options_match": {
-                        "enabled": True,
-                        "order_independent": True
-                    },
-                    "question_type_match": {
-                        "enabled": True
-                    }
-                },
-                "optional_conditions": {
-                    "formula_match": {
-                        "enabled": True,
-                        "weight": 0.15
-                    },
-                    "visual_similarity": {
-                        "enabled": True,
-                        "weight": 0.05
-                    }
+            "optional_conditions": {
+                "visual_similarity": {
+                    "enabled": True,
+                    "weight": 0.05
                 }
             },
             "scoring": {
                 "method": "weighted_sum",
-                "required_weight": 0.8,
-                "optional_weight": 0.2,
                 "threshold": 0.90  # High threshold
             }
         },
@@ -90,35 +69,14 @@ BALANCED_PRESET = {
                 "text_similarity_threshold": 0.75,
                 "top_k": 100  # Standard candidate count
             },
-            "stage2": {
-                "required_conditions": {
-                    "stem_match": {
-                        "enabled": True,
-                        "max_edit_distance": 5  # Moderate tolerance
-                    },
-                    "options_match": {
-                        "enabled": True,
-                        "order_independent": True
-                    },
-                    "question_type_match": {
-                        "enabled": True
-                    }
-                },
-                "optional_conditions": {
-                    "formula_match": {
-                        "enabled": True,
-                        "weight": 0.15
-                    },
-                    "visual_similarity": {
-                        "enabled": True,
-                        "weight": 0.05
-                    }
+            "optional_conditions": {
+                "visual_similarity": {
+                    "enabled": True,
+                    "weight": 0.05
                 }
             },
             "scoring": {
                 "method": "weighted_sum",
-                "required_weight": 0.8,
-                "optional_weight": 0.2,
                 "threshold": 0.85  # Moderate threshold
             }
         },
@@ -155,35 +113,14 @@ AGGRESSIVE_PRESET = {
                 "text_similarity_threshold": 0.65,
                 "top_k": 200  # More candidates
             },
-            "stage2": {
-                "required_conditions": {
-                    "stem_match": {
-                        "enabled": True,
-                        "max_edit_distance": 10  # High tolerance for OCR errors
-                    },
-                    "options_match": {
-                        "enabled": True,
-                        "order_independent": True
-                    },
-                    "question_type_match": {
-                        "enabled": True
-                    }
-                },
-                "optional_conditions": {
-                    "formula_match": {
-                        "enabled": True,
-                        "weight": 0.10
-                    },
-                    "visual_similarity": {
-                        "enabled": True,
-                        "weight": 0.10
-                    }
+            "optional_conditions": {
+                "visual_similarity": {
+                    "enabled": True,
+                    "weight": 0.10
                 }
             },
             "scoring": {
                 "method": "weighted_sum",
-                "required_weight": 0.8,
-                "optional_weight": 0.2,
                 "threshold": 0.75  # Lower threshold
             }
         },

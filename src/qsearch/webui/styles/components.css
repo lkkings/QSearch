@@ -1,0 +1,295 @@
+/* QSearch WebUI — 组件层：Streamlit 内建组件的外观覆盖
+ *
+ * 选择器纪律（D4）：只用 data-testid，不用 Streamlit 生成的哈希类名，
+ * 也不用 data-baseweb —— 后者在 1.63 中已从 DOM 中整体消失，原先依赖它的
+ * 规则（标签条、通知框）早已静默失效。
+ *
+ * 阴影纪律（D1）：本表内 box-shadow 只允许出现在浮层规则中
+ * （下拉、popover、dialog、toast）。面板、卡片、表格行一律不投影，
+ * 层级由 surface 明度差表达。
+ */
+
+/* ============================================================
+ * 按钮
+ * ============================================================ */
+.stButton button {
+  border-radius: var(--radius-ctrl);
+  font-weight: 500;
+  min-height: var(--h-compact);
+  border: 1px solid var(--border-hair);
+  background: var(--surface-2);
+  color: var(--text-1);
+  transition: background var(--dur-state) var(--ease),
+              border-color var(--dur-state) var(--ease);
+}
+
+/* 悬停改为状态层叠加。原实现是 translateY(-2px) + 阴影加深：
+ * 位移在长时间盯屏时形成持续的微动干扰，且与 Flat 2.0 的低装饰取向相悖。 */
+.stButton button:hover {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+
+.stButton button:active {
+  background: var(--surface-4);
+}
+
+.stButton button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* 主按钮 —— 原为紫色渐变，改为纯色填充 */
+.stButton button[kind="primary"],
+[data-testid="stFormSubmitButton"] button {
+  background: var(--focus);
+  color: var(--on-skip);
+  border: none;
+  font-weight: 600;
+}
+
+.stButton button[kind="primary"]:hover,
+[data-testid="stFormSubmitButton"] button:hover {
+  background: var(--focus-hover);
+}
+
+/* ============================================================
+ * 指标
+ *
+ * 数值原为紫色。计数类数值本身不携带语义，着色反而稀释了真正
+ * 需要颜色的地方（决策状态）。改为 text-1 + 字重建立层级。
+ * 字号与字重同时在 config.toml 的 metricValue* 中声明，此处保证
+ * 颜色一致。
+ * ============================================================ */
+[data-testid="stMetricValue"] {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+[data-testid="stMetricLabel"] {
+  color: var(--text-2);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+/* ============================================================
+ * 提示框
+ * ============================================================ */
+[data-testid="stAlert"] {
+  border-radius: var(--radius-ctrl);
+  padding: var(--space-3) var(--space-4);
+  margin: var(--space-2) 0;
+  border-left: 3px solid var(--border-strong);
+  background: var(--surface-2);
+}
+
+/* 语义色走系统信息寄存器（低饱和）：提示框是机器输出，
+ * 不得占用决策色。 */
+[data-testid="stAlertContentInfo"] {
+  border-left-color: var(--info-high);
+}
+
+[data-testid="stAlertContentWarning"] {
+  border-left-color: var(--info-mid);
+}
+
+[data-testid="stAlertContentError"] {
+  border-left-color: var(--task-failed);
+}
+
+[data-testid="stAlertContentSuccess"] {
+  border-left-color: var(--task-done);
+}
+
+/* ============================================================
+ * 标签页
+ *
+ * 原规则挂在 [data-baseweb="tab-list"] / [data-baseweb="tab"] 上，
+ * 1.63 中这些属性已不存在，规则整体失效。改挂 stTabs/stTab。
+ * 选中态原为紫渐变填充，改为亮蓝下边线 —— Flat 2.0 取向，
+ * 且不与决策色争夺注意力。
+ * ============================================================ */
+[data-testid="stTabs"] [role="tablist"] {
+  gap: var(--space-1);
+  background: var(--surface-1);
+  padding: var(--space-1);
+  border-radius: var(--radius-ctrl);
+  border-bottom: 1px solid var(--border-hair);
+}
+
+[data-testid="stTab"] {
+  border-radius: var(--radius-row);
+  padding: var(--space-2) var(--space-4);
+  font-weight: 500;
+  color: var(--text-2);
+  border-bottom: 2px solid transparent;
+  transition: color var(--dur-state) var(--ease),
+              border-color var(--dur-state) var(--ease);
+}
+
+[data-testid="stTab"]:hover {
+  color: var(--text-1);
+  background: var(--state-hover);
+}
+
+[data-testid="stTab"][aria-selected="true"] {
+  color: var(--text-1);
+  border-bottom-color: var(--focus);
+  background: transparent;
+}
+
+/* ============================================================
+ * 侧栏 —— 原为纵向渐变，改为纯色面板
+ * ============================================================ */
+[data-testid="stSidebar"] {
+  background: var(--surface-1);
+  border-right: 1px solid var(--border-hair);
+}
+
+/* ============================================================
+ * 输入控件 —— 紧凑高度，1px 边框（原为 2px + 紫色光晕）
+ * ============================================================ */
+[data-testid="stTextInputRootElement"],
+[data-testid="stSelectbox"] > div,
+.stTextArea textarea,
+.stNumberInput > div > div {
+  border-radius: var(--radius-ctrl);
+  border: 1px solid var(--border-hair);
+  background: var(--surface-2);
+  transition: border-color var(--dur-state) var(--ease);
+}
+
+[data-testid="stTextInputRootElement"]:focus-within,
+[data-testid="stSelectbox"] > div:focus-within,
+.stTextArea textarea:focus,
+.stNumberInput > div > div:focus-within {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 2px var(--state-selected);
+}
+
+[data-testid="stTextInputField"],
+.stTextArea textarea {
+  color: var(--text-1);
+  background: transparent;
+}
+
+[data-testid="stWidgetLabel"] {
+  color: var(--text-2);
+  font-size: 0.85rem;
+}
+
+/* 紧凑高度 —— 控制面板类页面要在有限垂直空间里放下更多控件。
+ * 决策按钮不在此列，它在 workbench.css 中取 48px。 */
+[data-testid="stTextInputRootElement"],
+[data-testid="stSelectbox"] > div,
+.stNumberInput > div > div {
+  min-height: var(--h-compact);
+}
+
+[data-testid="stTextInputField"] {
+  height: var(--h-compact);
+}
+
+/* ============================================================
+ * 进度条 —— 原为紫色渐变，改为纯色
+ * ============================================================ */
+.stProgress > div > div > div {
+  background: var(--focus);
+  border-radius: var(--radius-row);
+}
+
+.stProgress > div > div {
+  background: var(--surface-2);
+  border-radius: var(--radius-row);
+}
+
+/* ============================================================
+ * 文件上传区 —— 原为紫虚线 + 近白底，深色下会是亮块
+ * ============================================================ */
+[data-testid="stFileUploader"] section,
+[data-testid="stFileUploaderDropzone"] {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-ctrl);
+  padding: var(--space-6);
+  background: var(--surface-2);
+  transition: border-color var(--dur-state) var(--ease),
+              background var(--dur-state) var(--ease);
+}
+
+[data-testid="stFileUploader"] section:hover,
+[data-testid="stFileUploaderDropzone"]:hover {
+  border-color: var(--focus);
+  background: var(--surface-3);
+}
+
+/* ============================================================
+ * 表格 —— 紧凑档，行圆角走 radius-row
+ * ============================================================ */
+[data-testid="stDataFrame"],
+[data-testid="stTable"] {
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-row);
+}
+
+/* ============================================================
+ * 说明文字与代码
+ * ============================================================ */
+[data-testid="stCaptionContainer"] {
+  color: var(--text-3);
+}
+
+code {
+  background: var(--surface-2);
+  color: var(--text-1);
+  border-radius: var(--radius-row);
+  padding: 1px var(--space-1);
+}
+
+/* ============================================================
+ * 展开区
+ * ============================================================ */
+[data-testid="stExpander"] {
+  border: 1px solid var(--border-hair);
+  border-radius: var(--radius-card);
+  background: var(--surface-1);
+}
+
+/* ============================================================
+ * 徽章 —— 原为亮色粉彩底，深色下对比度失效
+ *
+ * 每个徽章都必须带非颜色冗余（图标或字形），颜色不得是唯一
+ * 区分手段。这一点在使用处（Python 侧）保证，此处只提供底色。
+ * ============================================================ */
+.badge {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-row);
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin: 0 var(--space-1);
+  border: 1px solid transparent;
+}
+
+.badge-success {
+  background: var(--info-high-bg);
+  color: var(--task-done);
+  border-color: var(--task-done);
+}
+
+.badge-warning {
+  background: var(--info-mid-bg);
+  color: var(--info-mid-text);
+  border-color: var(--info-mid);
+}
+
+.badge-danger {
+  background: var(--info-low-bg);
+  color: var(--info-low-text);
+  border-color: var(--task-failed);
+}
+
+.badge-info {
+  background: var(--info-high-bg);
+  color: var(--info-high-text);
+  border-color: var(--info-high);
+}

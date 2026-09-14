@@ -1,7 +1,8 @@
 """Matching engines for exact and content-based question matching.
 
+Simplified version without QuestionParser dependency.
 Implements dual-path matching: exact match via perceptual hashing and
-content match via text similarity with multi-stage verification.
+content match via text similarity.
 """
 
 import logging
@@ -35,15 +36,20 @@ class ExactMatcher:
         self.config = config
         self.max_distance = config.get('criteria', {}).get('perceptual_hash', {}).get('max_distance', 5)
 
-    def match(self, query_hash: str) -> List[Dict]:
+    def match(self, query_hash: str, top_n: Optional[int] = None) -> List[Dict]:
         """Find exact matches for query hash.
 
         Args:
             query_hash: Query perceptual hash
+            top_n: Optional limit on number of results (for WebUI support)
 
         Returns:
             List of match dictionaries with image_id, distance, confidence
         """
+        # Check if exact matching is enabled
+        if not self.config.get('enabled', True):
+            return []
+
         # Find similar hashes
         results = self.hash_index.lookup_similar(query_hash, self.max_distance)
 
@@ -56,6 +62,7 @@ class ExactMatcher:
                 'match_type': 'EXACT_MATCH',
                 'distance': distance,
                 'confidence': confidence,
+                'similarity': confidence,
                 'scores': {
                     'hash_distance': distance
                 }
@@ -63,6 +70,10 @@ class ExactMatcher:
 
         # Sort by confidence
         matches.sort(key=lambda x: x['confidence'], reverse=True)
+
+        # Apply top_n limit if specified
+        if top_n is not None and top_n > 0:
+            matches = matches[:top_n]
 
         return matches
 
@@ -81,7 +92,7 @@ class ExactMatcher:
 
 
 class ContentMatcher:
-    """Content match detection via two-stage text similarity."""
+    """Content match detection via two-stage text similarity (simplified)."""
 
     def __init__(
         self,
@@ -104,64 +115,141 @@ class ContentMatcher:
         self.stage1_threshold = config.get('stage1', {}).get('text_similarity_threshold', 0.75)
         self.stage1_top_k = config.get('stage1', {}).get('top_k', 100)
 
-        # Stage 2 config
-        self.stage2_config = config.get('stage2', {})
-        self.required_conditions = self.stage2_config.get('required_conditions', {})
-        self.optional_conditions = self.stage2_config.get('optional_conditions', {})
-
         # Scoring config
         self.scoring_config = config.get('scoring', {})
-        self.required_weight = self.scoring_config.get('required_weight', 0.8)
-        self.optional_weight = self.scoring_config.get('optional_weight', 0.2)
         self.final_threshold = self.scoring_config.get('threshold', 0.85)
 
     def match(
         self,
-        query_features: Dict
+        query_features: Dict,
+        top_n: Optional[int] = None
     ) -> List[Dict]:
         """Find content matches for query.
 
         Args:
             query_features: Extracted features from query image
+            top_n: Optional limit on number of results (for WebUI support)
 
         Returns:
             List of match dictionaries
         """
+        # Check if content matching is enabled
+        if not self.config.get('enabled', True):
+            return []
+
         # Stage 1: Vector similarity retrieval
-        candidates = self._stage1_retrieval(query_features)
+        # Use stage1_top_k for candidate retrieval, not top_n
+        candidates = self._stage1_retrieval(query_features, None)
 
         if not candidates:
             return []
 
-        # Stage 2: Detailed text matching
+        # Stage 2: Text similarity verification
         matches = self._stage2_verification(query_features, candidates)
 
         # Sort by final score
         matches.sort(key=lambda x: x['final_score'], reverse=True)
 
+        # Apply top_n limit if specified
+        if top_n is not None and top_n > 0:
+            matches = matches[:top_n]
+
         return matches
 
-    def _stage1_retrieval(self, query_features: Dict) -> List[Tuple[str, float]]:
+    def match_batch(
+        self,
+        query_features_list: List[Dict],
+        top_n: Optional[int] = None,
+        batch_size: int = 1024,
+    ) -> List[List[Dict]]:
+        """Find content matches for multiple queries with batched FAISS calls.
+
+        Feature extraction is deliberately kept outside this method.  This lets
+        callers finish their CPU-heavy OCR/encoding work in parallel, then feed
+        dense query matrices to FAISS instead of issuing one search call per
+        image.
+        """
+        matches_by_query: List[List[Dict]] = [
+            [] for _ in range(len(query_features_list))
+        ]
+        if not self.config.get('enabled', True) or not query_features_list:
+            return matches_by_query
+
+        positions: List[int] = []
+        embeddings: List[np.ndarray] = []
+        expected_dimension = int(self.faiss_index.dimension)
+
+        for position, query_features in enumerate(query_features_list):
+            embedding = (
+                query_features.get('text_features') or {}
+            ).get('text_embedding')
+            if embedding is None:
+                continue
+
+            vector = np.asarray(embedding, dtype=np.float32)
+            if vector.ndim != 1 or vector.shape[0] != expected_dimension:
+                logger.warning(
+                    "Ignoring query embedding with shape %s; expected (%d,)",
+                    vector.shape,
+                    expected_dimension,
+                )
+                continue
+
+            positions.append(position)
+            embeddings.append(vector)
+
+        if not embeddings:
+            return matches_by_query
+
+        batch_size = max(1, int(batch_size))
+        for start in range(0, len(embeddings), batch_size):
+            stop = min(start + batch_size, len(embeddings))
+            query_matrix = np.stack(embeddings[start:stop])
+            candidate_batches = self.faiss_index.search(
+                query_matrix,
+                k=self.stage1_top_k,
+                threshold=self.stage1_threshold,
+            )
+
+            for position, candidates in zip(
+                positions[start:stop], candidate_batches
+            ):
+                matches = self._stage2_verification(
+                    query_features_list[position], candidates
+                )
+                matches.sort(key=lambda item: item['final_score'], reverse=True)
+                if top_n is not None and top_n > 0:
+                    matches = matches[:top_n]
+                matches_by_query[position] = matches
+
+        return matches_by_query
+
+    def _stage1_retrieval(self, query_features: Dict, top_n: Optional[int] = None) -> List[Tuple[str, float]]:
         """Stage 1: Retrieve candidates via vector similarity.
 
         Args:
             query_features: Query features
+            top_n: Optional limit on number of candidates
 
         Returns:
             List of (image_id, similarity) tuples
         """
-        # Get stem embedding
-        stem_embedding = query_features.get('text_features', {}).get('stem_embedding')
+        # Get text embedding
+        text_embedding = query_features.get('text_features', {}).get('text_embedding')
 
-        if stem_embedding is None:
-            logger.warning("No stem embedding for query")
+        if text_embedding is None:
+            logger.warning("No text embedding for query")
             return []
 
+        # Determine k for Faiss search
+        # Use top_n if provided, otherwise use config default
+        k = top_n if top_n is not None else self.stage1_top_k
+
         # Search index
-        query_vector = np.array([stem_embedding])
+        query_vector = np.array([text_embedding])
         results = self.faiss_index.search(
             query_vector,
-            k=self.stage1_top_k,
+            k=k,
             threshold=self.stage1_threshold
         )
 
@@ -172,7 +260,7 @@ class ContentMatcher:
         query_features: Dict,
         candidates: List[Tuple[str, float]]
     ) -> List[Dict]:
-        """Stage 2: Detailed text and optional feature matching.
+        """Stage 2: Simplified text matching.
 
         Args:
             query_features: Query features
@@ -184,37 +272,28 @@ class ContentMatcher:
         matches = []
 
         query_text = query_features.get('text_features', {})
-        query_stem = query_text.get('stem', '')
-        query_options = query_text.get('options_normalized', [])
-        query_type = query_text.get('question_type', 'unknown')
+        query_full_text = query_text.get('full_text', '')
 
         for candidate_id, vec_similarity in candidates:
             # Get candidate features
             candidate_features = self.features_db.get(candidate_id, {})
             candidate_text = candidate_features.get('text_features', {})
+            candidate_full_text = candidate_text.get('full_text', '')
 
-            # Check required conditions
-            required_score, required_passed = self._check_required_conditions(
-                query_stem,
-                query_options,
-                query_type,
-                candidate_text
-            )
-
-            if not required_passed:
+            # Compute text similarity using Levenshtein distance
+            if not query_full_text or not candidate_full_text:
                 continue
 
-            # Check optional conditions
-            optional_score = self._check_optional_conditions(
-                query_features,
-                candidate_features
-            )
+            max_len = max(len(query_full_text), len(candidate_full_text))
+            if max_len == 0:
+                text_similarity = 0.0
+                edit_distance = 0
+            else:
+                edit_distance = Levenshtein.distance(query_full_text, candidate_full_text)
+                text_similarity = 1.0 - (edit_distance / max_len)
 
-            # Compute final score
-            final_score = (
-                self.required_weight * required_score +
-                self.optional_weight * optional_score
-            )
+            # Combine vector and text similarity
+            final_score = 0.75 * vec_similarity + 0.25 * text_similarity
 
             if final_score >= self.final_threshold:
                 matches.append({
@@ -222,117 +301,19 @@ class ContentMatcher:
                     'match_type': 'CONTENT_MATCH',
                     'final_score': final_score,
                     'confidence': final_score,
-                    'verification_passed': ['stage1_vector', 'stage2_required'],
+                    'similarity': final_score,
                     'scores': {
-                        'vector_similarity': vec_similarity,
-                        'required_score': required_score,
-                        'optional_score': optional_score
+                        'vector_similarity': float(vec_similarity),
+                        'text_similarity': float(text_similarity),
+                        'edit_distance': int(edit_distance)
                     }
                 })
 
         return matches
 
-    def _check_required_conditions(
-        self,
-        query_stem: str,
-        query_options: List[str],
-        query_type: str,
-        candidate_text: Dict
-    ) -> Tuple[float, bool]:
-        """Check required matching conditions.
-
-        Returns:
-            Tuple of (score, all_passed)
-        """
-        scores = []
-        all_passed = True
-
-        # Stem matching
-        stem_config = self.required_conditions.get('stem_match', {})
-        if stem_config.get('enabled', True):
-            candidate_stem = candidate_text.get('stem', '')
-            max_edit_distance = stem_config.get('max_edit_distance', 3)
-
-            edit_distance = Levenshtein.distance(query_stem, candidate_stem)
-
-            if edit_distance > max_edit_distance:
-                all_passed = False
-
-            stem_score = max(0.0, 1.0 - edit_distance / max(len(query_stem), len(candidate_stem), 1))
-            scores.append(stem_score)
-
-        # Options matching
-        options_config = self.required_conditions.get('options_match', {})
-        if options_config.get('enabled', True):
-            candidate_options = candidate_text.get('options_normalized', [])
-
-            # Order-independent comparison
-            if set(query_options) != set(candidate_options):
-                all_passed = False
-                scores.append(0.0)
-            else:
-                scores.append(1.0)
-
-        # Question type matching
-        type_config = self.required_conditions.get('question_type_match', {})
-        if type_config.get('enabled', True):
-            candidate_type = candidate_text.get('question_type', 'unknown')
-
-            if query_type != candidate_type:
-                all_passed = False
-                scores.append(0.0)
-            else:
-                scores.append(1.0)
-
-        avg_score = sum(scores) / len(scores) if scores else 0.0
-        return avg_score, all_passed
-
-    def _check_optional_conditions(
-        self,
-        query_features: Dict,
-        candidate_features: Dict
-    ) -> float:
-        """Check optional matching conditions.
-
-        Returns:
-            Weighted optional score
-        """
-        scores = []
-        weights = []
-
-        # Formula matching
-        formula_config = self.optional_conditions.get('formula_match', {})
-        if formula_config.get('enabled', False):
-            weight = formula_config.get('weight', 0.15)
-            # Simplified: just check if both have formulas
-            query_formulas = query_features.get('text_features', {}).get('formulas', [])
-            candidate_formulas = candidate_features.get('text_features', {}).get('formulas', [])
-
-            score = 1.0 if (query_formulas and candidate_formulas) else 0.5
-            scores.append(score)
-            weights.append(weight)
-
-        # Visual similarity
-        visual_config = self.optional_conditions.get('visual_similarity', {})
-        if visual_config.get('enabled', False):
-            weight = visual_config.get('weight', 0.05)
-            # Would use CNN features if available
-            score = 0.7  # Placeholder
-            scores.append(score)
-            weights.append(weight)
-
-        if not scores:
-            return 0.0
-
-        # Weighted average
-        weighted_sum = sum(s * w for s, w in zip(scores, weights))
-        total_weight = sum(weights)
-
-        return weighted_sum / total_weight if total_weight > 0 else 0.0
-
 
 class QuestionMatcher:
-    """Orchestrates exact and content matching paths."""
+    """Top-level matcher that combines exact and content matching."""
 
     def __init__(
         self,
@@ -350,54 +331,129 @@ class QuestionMatcher:
         self.exact_matcher = exact_matcher
         self.content_matcher = content_matcher
         self.config = config
-        self.top_k = config.get('top_k', 10)
+        self.top_k = config.get('top_k', 3)  # 默认返回 Top 3
 
-    def match(self, query_features: Dict) -> Dict:
-        """Match query using both paths.
+    def match(self, query_features: Dict, top_n: Optional[int] = None) -> Dict:
+        """Match query against database.
 
         Args:
             query_features: Extracted query features
+            top_n: Optional override for number of results (1-20).
+                   If None, uses config default (top_k).
+                   Clamped to valid range internally.
 
         Returns:
-            Results dictionary with both match types
+            Match results dictionary with top matches
         """
         start_time = time.time()
 
-        # Extract query hash
+        # Validate and clamp top_n
+        if top_n is not None:
+            top_n = max(1, min(20, top_n))  # Clamp to [1, 20]
+            result_limit = top_n
+        else:
+            result_limit = self.top_k  # Use config default
+
+        # Try exact match first
+        exact_matches = []
         query_hash = query_features.get('image_features', {}).get('perceptual_hash')
 
-        # Exact matches
-        exact_matches = []
         if query_hash:
-            exact_matches = self.exact_matcher.match(query_hash)
+            exact_matches = self.exact_matcher.match(query_hash, top_n=result_limit)
 
-        # Content matches
-        content_matches = self.content_matcher.match(query_features)
+        # Try content match
+        content_matches = self.content_matcher.match(query_features, top_n=result_limit)
 
-        # Deduplication: mark images in both
-        exact_ids = set(m['image_id'] for m in exact_matches)
-        for match in content_matches:
-            if match['image_id'] in exact_ids:
-                match['also_exact_match'] = True
+        # Combine and deduplicate
+        all_matches = self._combine_matches(exact_matches, content_matches)
 
-        # Apply top-K per type
-        exact_matches = exact_matches[:self.top_k]
-        content_matches = content_matches[:self.top_k]
-
-        # Add confidence levels
-        for match in exact_matches + content_matches:
-            conf = match['confidence']
-            if conf >= 0.9:
-                match['confidence_level'] = 'HIGH'
-            elif conf >= 0.8:
-                match['confidence_level'] = 'MEDIUM'
-            else:
-                match['confidence_level'] = 'LOW'
+        # Keep only result_limit results
+        top_matches = all_matches[:result_limit]
 
         processing_time = (time.time() - start_time) * 1000
 
         return {
-            'exact_matches': exact_matches,
-            'content_matches': content_matches,
+            'total_matches': len(all_matches),
+            'top_k': len(top_matches),
+            'matches': top_matches,
             'processing_time_ms': processing_time
         }
+
+    def match_batch(
+        self,
+        query_features_list: List[Dict],
+        top_n: Optional[int] = None,
+        vector_batch_size: int = 1024,
+    ) -> List[Dict]:
+        """Match multiple feature dictionaries using batched vector retrieval."""
+        if top_n is not None:
+            result_limit = max(1, min(20, top_n))
+        else:
+            result_limit = self.top_k
+
+        started_at = time.time()
+        content_batches = self.content_matcher.match_batch(
+            query_features_list,
+            top_n=result_limit,
+            batch_size=vector_batch_size,
+        )
+        elapsed_ms = (time.time() - started_at) * 1000
+        average_ms = elapsed_ms / len(query_features_list) if query_features_list else 0.0
+
+        results: List[Dict] = []
+        for query_features, content_matches in zip(
+            query_features_list, content_batches
+        ):
+            exact_matches = []
+            query_hash = (
+                query_features.get('image_features') or {}
+            ).get('perceptual_hash')
+            if query_hash:
+                exact_matches = self.exact_matcher.match(
+                    query_hash, top_n=result_limit
+                )
+
+            all_matches = self._combine_matches(exact_matches, content_matches)
+            top_matches = all_matches[:result_limit]
+            results.append({
+                'total_matches': len(all_matches),
+                'top_k': len(top_matches),
+                'matches': top_matches,
+                'processing_time_ms': average_ms,
+            })
+
+        return results
+
+    def _combine_matches(
+        self,
+        exact_matches: List[Dict],
+        content_matches: List[Dict]
+    ) -> List[Dict]:
+        """Combine and deduplicate exact and content matches.
+
+        Args:
+            exact_matches: List of exact matches
+            content_matches: List of content matches
+
+        Returns:
+            Combined and sorted list
+        """
+        # Use dict to deduplicate by image_id
+        combined = {}
+
+        # Exact matches have higher priority
+        for match in exact_matches:
+            image_id = match['image_id']
+            combined[image_id] = match
+
+        # Add content matches if not already present
+        for match in content_matches:
+            image_id = match['image_id']
+            if image_id not in combined:
+                combined[image_id] = match
+
+        # Sort by similarity/confidence
+        matches_list = list(combined.values())
+        matches_list.sort(key=lambda x: x.get('similarity', x.get('confidence', 0)), reverse=True)
+
+        return matches_list

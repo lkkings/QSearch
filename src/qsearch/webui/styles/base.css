@@ -1,0 +1,59 @@
+/* QSearch WebUI — 基础层：布局容器、排版、分隔线
+ *
+ * 自 app.py 的内联 <style> 迁出。此表只放跨页面通用的骨架规则，
+ * 组件级外观在 components.css。
+ */
+
+/* 内容容器 —— 控制面板类页面的宽度上限与边距 */
+.block-container {
+  padding-top: var(--space-8);
+  padding-bottom: var(--space-8);
+  max-width: var(--content-max);
+}
+
+/* 标题
+ *
+ * h1 原为渐变裁字（-webkit-background-clip: text）。渐变属装饰性，
+ * 与「减少视觉疲劳」的目标相悖，故改为纯色 + 字重建立层级。
+ */
+h1 {
+  color: var(--text-1);
+  font-weight: 700;
+}
+
+h2,
+h3 {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+/* 分隔线 —— 原为左右淡出的渐变，改为发丝实线 */
+hr {
+  margin: var(--space-6) 0;
+  border: none;
+  height: 1px;
+  background: var(--border-hair);
+}
+
+/* 加载指示 */
+.stSpinner > div {
+  text-align: center;
+  color: var(--focus);
+}
+
+/* 滑块的垂直呼吸 */
+.stSlider {
+  padding: var(--space-2) 0;
+}
+
+/* 版本标记（右上角）
+ *
+ * 原为内联 style="color:#666"，在 surface-0 上对比度约 3.6:1，
+ * 低于正文阈值。改走 text-3 令牌。
+ */
+.qs-version {
+  text-align: right;
+  color: var(--text-3);
+  font-size: 0.85rem;
+  padding: var(--space-2);
+}

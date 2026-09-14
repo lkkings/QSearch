@@ -1,0 +1,149 @@
+/* QSearch WebUI — 毛玻璃浮层
+ *
+ * 只覆盖三处，它们的共同点是「背后有内容值得透出」：
+ *   1. 任务进度 toast   —— 不遮挡正在操作的内容
+ *   2. 快捷键速查 popover —— 松手即走，不打断节奏
+ *   3. 危险操作 dialog   —— 背板模糊，聚焦决策
+ *
+ * 卡片、表格、侧栏一律不用。半透明降对比度，与「减少视觉疲劳 +
+ * 高信息密度」直接对撞 —— 这与排除新拟物风的理由是同一条：
+ * 看不清边界的界面在长时间标注里是负担。
+ *
+ * 本表最后加载，故其规则覆盖 components.css 的同名组件默认外观。
+ * 具体模糊半径与不透明度在任务 8.4 实测后定。
+ */
+
+/* ============================================================
+ * 1. 任务进度 toast
+ * ============================================================ */
+[data-testid="stToast"] {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-overlay);
+  color: var(--text-1);
+}
+
+/* ============================================================
+ * 2. Popover（快捷键速查、候选卡片的详细评分）
+ * ============================================================ */
+[data-testid="stPopoverBody"] {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-overlay);
+}
+
+/* ============================================================
+ * 3. Dialog（危险操作确认）
+ * ============================================================ */
+[data-testid="stDialog"] > div,
+[role="dialog"] {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-modal);
+  box-shadow: var(--shadow-modal);
+}
+
+/* ============================================================
+ * 长任务进度浮层
+ *
+ * 玻璃在此的正当性：底下是标注员正在操作的内容，长任务可能跑很久，
+ * 期间必须能继续工作。不透明面板会遮住一块工作区。
+ *
+ * pointer-events: none 是硬要求 —— 规格明确「该提示 SHALL NOT 拦截对
+ * 下方元素的操作」。浮层若吃掉点击，它就从「提示」变成了「障碍」。
+ * ============================================================ */
+.qs-progress-overlay {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 60;
+  min-width: 300px;
+  max-width: 380px;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  pointer-events: none;
+
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-overlay);
+}
+
+.qs-progress-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  grid-template-areas:
+    "name count pct"
+    "track track track";
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  font-size: 0.8rem;
+}
+
+.qs-progress-name {
+  grid-area: name;
+  color: var(--text-1);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qs-progress-count {
+  grid-area: count;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.qs-progress-pct {
+  grid-area: pct;
+  color: var(--text-1);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.qs-progress-track {
+  grid-area: track;
+  height: 4px;
+  border-radius: var(--radius-row);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+/* 进度条填充走 --task-running（低饱和信息寄存器）而非决策色 ——
+ * 任务进度是机器输出。 */
+.qs-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-row);
+  background: var(--task-running);
+  transition: width var(--dur-overlay) var(--ease);
+}
+
+/* ============================================================
+ * 无 backdrop-filter 支持时的降级
+ *
+ * 不透明化即可。玻璃是修饰，可读性不是 —— 规格要求浮层承载的
+ * 文本始终满足对比度，不因背景透出而低于阈值。
+ * ============================================================ */
+@supports not (backdrop-filter: blur(1px)) {
+  [data-testid="stToast"],
+  [data-testid="stPopoverBody"],
+  [data-testid="stDialog"] > div,
+  [role="dialog"],
+  .qs-progress-overlay {
+    background: var(--surface-3);
+  }
+}

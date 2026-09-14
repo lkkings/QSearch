@@ -1,0 +1,91 @@
+# QSearch WebUI — Streamlit 原生主题基线
+#
+# 这一层的作用是「兜底」，不是「全部」。
+# 自定义 CSS（src/qsearch/webui/styles/）负责组件级外观；此处负责让任何
+# 未被 CSS 覆盖到的 Streamlit 内建组件也落在正确色系内。
+#
+# 缺少这一层就是当前深色模式破损的根因：主题跟随浏览器，而自定义 CSS 是
+# 硬编码亮色值，二者打架，界面呈亮暗混杂。
+#
+# 令牌值与 styles/tokens.css 的 :root 保持一致。改这里必须同步改那边。
+
+[theme]
+# 锁定深色。不跟随操作系统或浏览器的 prefers-color-scheme。
+base = "dark"
+
+# --- 表面层级（D1：高度以明度表达，非阴影堆叠）---
+# surface-0：应用底。取 #0F1214 而非纯黑——纯黑背景上的高饱和色
+# （尤其 #00E676）会产生光晕，长时间盯屏加剧疲劳。
+backgroundColor = "#0F1214"
+# surface-1：面板、侧栏
+secondaryBackgroundColor = "#16191C"
+
+# --- 文字 ---
+# text-1，对 surface-0 约 14:1
+textColor = "#E6E9EC"
+
+# --- 焦点色（D2：--focus，仅用于焦点环与选中态）---
+primaryColor = "#00B0FF"
+linkColor = "#4CC2FF"
+
+# --- 边框（border-hair 的 hex 等价：rgba(255,255,255,.08) over surface-0）---
+borderColor = "#24282C"
+showWidgetBorder = true
+showSidebarBorder = true
+
+# --- 圆角（tokens：控件 6px；卡片 10 与 dialog 14 由 CSS 承担）---
+baseRadius = "6px"
+buttonRadius = "6px"
+
+# --- 指标（支撑 4.7：数值不再着彩色，靠字重建立层级）---
+metricValueFontSize = "1.5rem"
+metricValueFontWeight = 600
+
+# --- 代码块与表格：深色表面，否则残留亮底 ---
+codeBackgroundColor = "#1D2125"
+codeTextColor = "#E6E9EC"
+dataframeBorderColor = "#24282C"
+dataframeHeaderBackgroundColor = "#1D2125"
+
+# --- 语义色族：系统信息寄存器（低饱和）---
+#
+# D2 要求「高饱和色只可能表示人给出的判断」。Streamlit 的这几个色族被
+# 内建的 markdown 着色与 badge 使用，而 task_ui.py:128 正是用
+# :green[COMPLETED] / :red[FAILED] 渲染任务状态——那是机器输出。
+#
+# 所以此处一律映射为低饱和。决策色（--hit #00E676 / --miss #FF5252）
+# 不在这里出现，它们只在 workbench.css 中作用于标注决策按钮。
+greenColor = "#5A9E70"
+greenBackgroundColor = "#1B2620"
+greenTextColor = "#8FC7A1"
+
+redColor = "#B5564E"
+redBackgroundColor = "#2A1D1C"
+redTextColor = "#D89189"
+
+orangeColor = "#B89550"
+orangeBackgroundColor = "#26211A"
+orangeTextColor = "#D4B77C"
+
+blueColor = "#4A9EBE"
+blueBackgroundColor = "#182428"
+blueTextColor = "#8AC4DB"
+
+grayColor = "#707A84"
+grayBackgroundColor = "#1D2125"
+grayTextColor = "#9AA4AE"
+
+violetColor = "#8A7BB8"
+violetBackgroundColor = "#211E2A"
+violetTextColor = "#B4A8D6"
+
+yellowColor = "#B8A550"
+yellowBackgroundColor = "#26241A"
+yellowTextColor = "#D4C77C"
+
+[browser]
+gatherUsageStats = false
+
+[client]
+# QSearch 使用单页工作台；即使部署环境残留旧 pages 缓存，也不显示页面导航。
+showSidebarNavigation = false

@@ -17,3 +17,6 @@ data/
 data/index/
 *.faiss
 *.pkl
+
+# Playwright MCP artifacts (baseline screenshots, snapshots, traces)
+.playwright-mcp/

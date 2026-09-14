@@ -1,0 +1,55 @@
+text:
+  ocr:
+    engine: paddleocr
+    languages:
+    - ch
+    - en
+    confidence_threshold: 0.5
+  encoding:
+    chinese_model: hfl/chinese-roberta-wwm-ext
+    english_model: sentence-transformers/all-mpnet-base-v2
+    embedding_dim: 768
+    max_length: 512
+    batch_size: 4
+image:
+  components:
+    perceptual_hash:
+      enabled: true
+      algorithm: dHash
+      hash_size: 16
+    deep_features:
+      enabled: false
+      model: efficientnet_b4
+      output_dim: 512
+  batch_size: 4
+index:
+  type: IVFFlat
+  nlist: 100
+  nprobe: 10
+name: balanced
+description: Balanced configuration with moderate thresholds (precision/recall trade-off)
+matching:
+  exact_match:
+    enabled: true
+    criteria:
+      perceptual_hash:
+        max_distance: 5
+  content_match:
+    enabled: true
+    stage1:
+      text_similarity_threshold: 0.75
+      top_k: 100
+    optional_conditions:
+      visual_similarity:
+        enabled: true
+        weight: 0.05
+    scoring:
+      method: weighted_sum
+      threshold: 0.85
+  output:
+    top_k: 10
+    grouping:
+      by_match_type: true
+    include_details:
+      feature_scores: true
+      debug_info: false

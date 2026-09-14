@@ -1,0 +1,301 @@
+/* QSearch WebUI — 标注工作台专属
+ *
+ * 横向结果轨道、候选卡片、焦点环、决策按钮、查询图锚定、专注模式。
+ *
+ * 决策色（--hit / --miss / --skip）只在本表出现 —— 那是「人给出的判断」
+ * 所在之处。其余各表一律使用系统信息寄存器（低饱和）。
+ */
+
+/* ============================================================
+ * 专注模式
+ *
+ * 标注是高频、长时间、键盘驱动的工作；其余三页是偶发的设置类操作。
+ * 二者共享同一套宽松边距是把工作台的空间让给了控制面板。
+ * 由 Python 侧在 focus_mode 为真时给 body 加 data-qs-focus 属性。
+ * ============================================================ */
+body[data-qs-focus="1"] .block-container,
+body[data-qs-focus="1"] [data-testid="stMainBlockContainer"] {
+  padding-top: var(--space-3);
+  padding-bottom: var(--space-3);
+  max-width: none;
+}
+
+/* ============================================================
+ * 顶部状态条 —— 单行，不与图像抢垂直空间
+ * ============================================================ */
+.qs-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--topbar-h);
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--border-hair);
+  font-size: 0.85rem;
+  color: var(--text-2);
+}
+
+.qs-topbar strong {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+/* ============================================================
+ * Query 状态导航 —— 固定、单行、可横向滚动
+ *
+ * 状态同时由按钮文字/图标表达，颜色只是冗余通道。容器与状态都编码在
+ * Streamlit key 生成的稳定 class 中，不依赖内部哈希类名。
+ * ============================================================ */
+[class~="st-key-qs_query_navigation"] {
+  position: sticky;
+  top: 0;
+  z-index: 7;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-hair);
+  background: var(--surface-0);
+}
+
+[class~="st-key-qs_query_navigation_strip"] {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+  padding: var(--space-1) var(--space-1) var(--space-2);
+}
+
+[class*="st-key-qsnavitem_"] {
+  --qs-query-state: var(--task-pending);
+  flex: 0 0 220px;
+}
+
+[class*="st-key-qsnavitem_"][class*="_unlabeled_"] {
+  --qs-query-state: var(--task-pending);
+}
+
+[class*="st-key-qsnavitem_"][class*="_partial_"] {
+  --qs-query-state: var(--task-running);
+}
+
+[class*="st-key-qsnavitem_"][class*="_completed_"] {
+  --qs-query-state: var(--task-done);
+}
+
+[class*="st-key-qsnavitem_"][class*="_no_candidates_"] {
+  --qs-query-state: var(--task-failed);
+}
+
+[class*="st-key-qsnavitem_"] button {
+  min-height: var(--h-normal);
+  border-color: var(--qs-query-state);
+  background: var(--surface-2);
+  color: var(--qs-query-state);
+  font-weight: 600;
+}
+
+[class*="st-key-qsnavitem_"] button:hover {
+  border-color: var(--qs-query-state);
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+[class*="st-key-qsnavitem_"][class*="_selected"] button {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  background: var(--state-selected);
+  color: var(--text-1);
+}
+
+/* ============================================================
+ * 查询图锚定
+ *
+ * 焦点在网格内移动时，查询图必须保持位置不变 —— 眼睛不用重新定位，
+ * 这是比对类界面的基本功。
+ *
+ * sticky 相对最近的滚动祖先定位。Streamlit 的 stMain 是 overflow-y:auto，
+ * 而其上方 stApp/stAppViewContainer 的 overflow:hidden 不在同一层，
+ * 故 sticky 生效（任务 3.1 实测确认：滚动 800px 后 top 钉在 0）。
+ * ============================================================ */
+[class*="st-key-qsanchor"] {
+  position: sticky;
+  top: calc(var(--h-normal) + var(--space-6));
+  z-index: 5;
+  background: var(--surface-0);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-hair);
+}
+
+/* ============================================================
+ * 候选横向轨道与卡片
+ * ============================================================ */
+[class~="st-key-qscandidate_strip"] {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+  scroll-snap-type: x proximity;
+  padding: var(--space-1) var(--space-1) var(--space-3);
+}
+
+/* 卡片本体挂在 Streamlit 为 st.container(key=...) 生成的容器上。
+ *
+ * 不能用自己的 <div class="qs-card"> 包裹 —— st.image / st.button 无法
+ * 嵌进 markdown 生成的 div 内。所以卡片状态编码进容器 key
+ * （qscard_<idx>_lbl_<label>），再用属性子串选择器命中。 */
+[class*="st-key-qscard_"] {
+  position: relative;
+  flex: 0 0 360px;
+  min-width: 360px;
+  scroll-snap-align: start;
+  border: 1px solid var(--border-hair);
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-card);
+  background: var(--surface-2);
+  padding: var(--space-2);
+  transition: border-color var(--dur-state) var(--ease),
+              background var(--dur-state) var(--ease);
+}
+
+/* 悬停用状态层，不位移 —— 长时间盯屏时位移是持续的微动干扰 */
+[class*="st-key-qscard_"]:hover {
+  background: var(--surface-3);
+}
+
+/* 卡片内的评分行 —— rank、综合分、置信 chip 同处一行，
+ * 不占用图像的垂直空间。 */
+.qs-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  font-size: 0.78rem;
+  color: var(--text-2);
+}
+
+.qs-card-rank {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.qs-card-score {
+  color: var(--text-1);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+ * 决策按钮 —— 标注界面唯一的高频点击目标
+ *
+ * 48px 是 Material 的触摸目标下限。这里不吝惜空间：标注员一小时
+ * 要点几百次，误点的代价是错标数据。
+ *
+ * 按 key 前缀定位（Streamlit 为 st.button(key=...) 在容器上生成
+ * .st-key-<key>，任务 3.2 实测确认）。
+ * ============================================================ */
+[class*="st-key-qsdec_"] button {
+  min-height: var(--h-decision);
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: var(--radius-ctrl);
+  border: 1px solid transparent;
+}
+
+[class*="st-key-qsdec_hit"] button {
+  background: var(--hit);
+  color: var(--on-hit);
+}
+
+[class*="st-key-qsdec_miss"] button {
+  background: var(--miss);
+  color: var(--on-miss);
+}
+
+[class*="st-key-qsdec_skip"] button {
+  background: var(--skip);
+  color: var(--on-skip);
+}
+
+/* 悬停仅提亮边框，不改填充 —— 决策色本身携带语义，
+ * 改变它会让「这是什么判断」变得含糊。 */
+[class*="st-key-qsdec_"] button:hover {
+  border-color: var(--text-1);
+}
+
+[class*="st-key-qsdec_"] button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+ * 已标注卡片的状态
+ *
+ * 标注状态编码在容器 key 中（qscard_<idx>_lbl_<label>），故可用属性
+ * 子串选择器命中。Python 侧无法给 Streamlit 容器加任意 class，这是在
+ * 不引入自定义组件的前提下把状态带到 CSS 的可行路径。
+ * ============================================================ */
+[class*="st-key-qscard_"][class*="_lbl_hit"] {
+  border-left-color: var(--hit);
+  background: var(--hit-wash);
+}
+
+[class*="st-key-qscard_"][class*="_lbl_miss"] {
+  border-left-color: var(--miss);
+  background: var(--miss-wash);
+}
+
+[class*="st-key-qscard_"][class*="_lbl_skip"] {
+  border-left-color: var(--skip);
+  background: var(--skip-wash);
+}
+
+/* 焦点环由 JS 在 parent DOM 上加类，零服务端往返 */
+[class*="st-key-qscard_"].qs-card--focused {
+  border-radius: var(--radius-card);
+  box-shadow: 0 0 0 2px var(--focus);
+}
+
+/* 卡片内的标注状态徽章 —— 与左边缘状态条互为冗余：
+ * 边缘条是颜色通道，徽章带图标，颜色不可辨时仍能区分。 */
+.qs-card-label {
+  margin: var(--space-1) 0;
+}
+
+/* ============================================================
+ * 图像不可读时的占位
+ *
+ * 某张候选图坏掉不应让整页失败，但标注员需要知道那一格为什么是空的 ——
+ * 否则会误以为界面卡住了。故占位块要明确说出原因。
+ * ============================================================ */
+.qs-img-missing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-height: 120px;
+  padding: var(--space-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-row);
+  background: var(--surface-1);
+  color: var(--text-2);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.qs-img-missing span {
+  color: var(--text-3);
+  font-size: 0.74rem;
+}
+
+/* ============================================================
+ * 键位提示 —— 写在按钮上，不藏在侧栏
+ * ============================================================ */
+.qs-key {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-row);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  text-align: center;
+}

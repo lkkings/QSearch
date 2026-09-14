@@ -6,22 +6,13 @@ torchvision>=0.15.0
 
 # Vector Search (GPU version for Linux)
 faiss-gpu>=1.7.4
-
-# OCR Engines
-paddleocr>=2.7.0
-# OCR runtime: install the CUDA build of paddlepaddle for GPU acceleration.
-# Not resolvable from PyPI - use the Paddle index:
-#   uv pip install paddlepaddle-gpu==3.0.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
-# Or let the helper pick the right CUDA index automatically:
-#   uv run scripts/install_paddle.py --gpu
-pix2tex[api]>=0.1.2  # LaTeX-OCR
-
 # NLP Models
-transformers>=4.30.0
+transformers>=4.49.0
+accelerate>=0.26.0
 sentence-transformers>=2.2.0
 
 # Image Processing
-opencv-python>=4.8.0
+opencv-python-headless>=4.8.0
 Pillow>=10.0.0
 imagehash>=4.3.1
 
@@ -33,8 +24,3 @@ numpy>=1.24.0
 tqdm>=4.65.0
 psutil>=5.9.0
 scikit-image>=0.21.0
-python-Levenshtein>=0.21.0
-
-# Testing
-pytest>=7.4.0
-pytest-cov>=4.1.0

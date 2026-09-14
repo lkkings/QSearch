@@ -1,7 +1,8 @@
 """Text feature extraction from question images.
 
-Extracts configurable text features including stem, options, and formulas,
-with BERT/RoBERTa encoding for semantic similarity.
+Two steps only:
+    1. OCR the image into plain text.
+    2. Encode that text into a semantic vector with BERT/RoBERTa.
 """
 
 import logging
@@ -10,16 +11,28 @@ from typing import Dict, List, Optional, Union
 
 import numpy as np
 import torch
-from PIL import Image
-from transformers import AutoModel, AutoTokenizer
-
-from .ocr_engine import OCREngine
-from .preprocessing import ImagePreprocessor
-from .question_parser import QuestionParser
-from .formula_extractor import FormulaExtractor
-from ..utils.text_normalization import normalize_text, normalize_options
+from huggingface_hub import snapshot_download
+from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
+
+CHINESE_EMBEDDING_MODEL = "richinfoai/ritrieve_zh_v1"
+ENGLISH_EMBEDDING_MODEL ="BAAI/bge-base-en-v1.5"
+
+
+def simple_normalize_text(text: str) -> str:
+    """Simple text normalization without external dependencies.
+
+    Args:
+        text: Input text
+
+    Returns:
+        Normalized text
+    """
+    if not text:
+        return ""
+    normalized = ' '.join(text.split())
+    return normalized
 
 
 class TextFeatureExtractor:
@@ -27,283 +40,259 @@ class TextFeatureExtractor:
 
     def __init__(
         self,
-        config: Dict,
-        ocr_engine: Optional[OCREngine] = None,
-        preprocessor: Optional[ImagePreprocessor] = None,
-        parser: Optional[QuestionParser] = None,
-        formula_extractor: Optional[FormulaExtractor] = None
+        max_length: int = 2048,
+        use_gpu: bool = True,
+        gpu_id: int = 0,
     ):
         """Initialize text feature extractor.
 
         Args:
-            config: Configuration dictionary for text features
-            ocr_engine: OCR engine instance (creates default if None)
             preprocessor: Image preprocessor (creates default if None)
-            parser: Question parser (creates default if None)
-            formula_extractor: Formula extractor (creates default if None)
+            use_gpu: Whether to use CUDA when it is available
+            gpu_id: CUDA device index
         """
-        self.config = config
-        self.components_config = config.get('components', {})
-        self.encoding_config = config.get('encoding', {})
-
-        # Initialize components
-        self.ocr_engine = ocr_engine or OCREngine()
-        self.preprocessor = preprocessor or ImagePreprocessor()
-        self.parser = parser or QuestionParser()
-        self.formula_extractor = formula_extractor
+        self.max_length = max_length
+        self.use_gpu = bool(use_gpu and torch.cuda.is_available())
+        self.gpu_id = int(gpu_id)
+        self.device = torch.device(f'cuda:{self.gpu_id}' if self.use_gpu else 'cpu')
 
         # Initialize text encoders
         self._chinese_encoder = None
         self._english_encoder = None
-        self._chinese_tokenizer = None
-        self._english_tokenizer = None
 
         self._initialize_encoders()
 
-    def _initialize_encoders(self):
-        """Initialize BERT/RoBERTa encoders for text embedding."""
-        from pathlib import Path
-
-        # src/qsearch/features/text_extractor.py -> project root is 3 levels up
+    
+    def _initialize_encoders(self) -> None:
+        """Initialize Chinese and English sentence embedding models."""
         project_root = Path(__file__).resolve().parents[3]
         models_dir = project_root / "models"
+        models_dir.mkdir(parents=True, exist_ok=True)
 
-        # Chinese model
-        chinese_model = self.encoding_config.get('chinese_model', 'hfl/chinese-roberta-wwm-ext')
-        chinese_local = models_dir / "chinese-roberta-wwm-ext"
+        # ============================================================
+        # Chinese embedding model
+        # ============================================================
 
-        # Try local first, fall back to HuggingFace with local cache
-        chinese_path = str(chinese_local) if chinese_local.exists() else chinese_model
+        chinese_local = models_dir / "ritrieve_zh_v1"
 
         try:
-            self._chinese_tokenizer = AutoTokenizer.from_pretrained(
-                chinese_path,
-                cache_dir=str(models_dir) if chinese_path == chinese_model else None
+            if not chinese_local.exists():
+                logger.info(
+                    "Chinese embedding model not found locally, "
+                    "downloading: %s",
+                    CHINESE_EMBEDDING_MODEL,
+                )
+
+                snapshot_download(
+                    repo_id=CHINESE_EMBEDDING_MODEL,
+                    local_dir=str(chinese_local),
+                )
+
+                logger.info(
+                    "Chinese embedding model downloaded to: %s",
+                    chinese_local,
+                )
+
+            self._chinese_encoder = SentenceTransformer(
+                str(chinese_local),
+                device=self.device,
             )
-            self._chinese_encoder = AutoModel.from_pretrained(
-                chinese_path,
-                cache_dir=str(models_dir) if chinese_path == chinese_model else None
-            )
+
             self._chinese_encoder.eval()
-            logger.info(f"Loaded Chinese encoder from: {chinese_path}")
-        except Exception as e:
-            logger.error(f"Failed to load Chinese encoder: {e}")
 
-        # English model
-        english_model = self.encoding_config.get('english_model', 'sentence-transformers/all-mpnet-base-v2')
-        english_local = models_dir / "all-mpnet-base-v2"
+            logger.info(
+                "Loaded Chinese embedding model from %s on %s",
+                chinese_local,
+                self.device,
+            )
 
-        english_path = str(english_local) if english_local.exists() else english_model
+        except Exception as exc:
+            logger.exception(
+                "Failed to load Chinese embedding model",
+            )
+
+            raise RuntimeError(
+                f"Unable to load Chinese embedding model "
+                f"from {chinese_local!r}."
+            ) from exc
+
+        # ============================================================
+        # English embedding model
+        # ============================================================
+
+        english_local = models_dir / "bge-base-en-v1.5"
 
         try:
-            self._english_tokenizer = AutoTokenizer.from_pretrained(
-                english_path,
-                cache_dir=str(models_dir) if english_path == english_model else None
+            if not english_local.exists():
+                logger.info(
+                    "English embedding model not found locally, "
+                    "downloading: %s",
+                    ENGLISH_EMBEDDING_MODEL,
+                )
+
+                snapshot_download(
+                    repo_id=ENGLISH_EMBEDDING_MODEL,
+                    local_dir=str(english_local),
+                )
+
+                logger.info(
+                    "English embedding model downloaded to: %s",
+                    english_local,
+                )
+
+            self._english_encoder = SentenceTransformer(
+                str(english_local),
+                device=self.device,
             )
-            self._english_encoder = AutoModel.from_pretrained(
-                english_path,
-                cache_dir=str(models_dir) if english_path == english_model else None
-            )
+
             self._english_encoder.eval()
-            logger.info(f"Loaded English encoder from: {english_path}")
-        except Exception as e:
-            logger.error(f"Failed to load English encoder: {e}")
 
-    def extract(
+            logger.info(
+                "Loaded English embedding model from %s on %s",
+                english_local,
+                self.device,
+            )
+
+        except Exception as exc:
+            logger.exception(
+                "Failed to load English embedding model",
+            )
+
+            raise RuntimeError(
+                f"Unable to load English embedding model "
+                f"from {english_local!r}."
+            ) from exc 
+    def encode(
         self,
-        image: Union[str, Path, np.ndarray, Image.Image]
-    ) -> Dict:
-        """Extract text features from question image.
+        texts: Union[str, List[str]],
+    ) -> np.ndarray:
+        """Encode one or multiple texts into normalized embeddings.
 
         Args:
-            image: Input image
+            texts: A single text or a list of texts.
 
         Returns:
-            Dictionary containing extracted text features
+            A single embedding with shape [D] for one text,
+            or embeddings with shape [N, D] for multiple texts.
         """
-        result = {
-            'stem': None,
-            'stem_embedding': None,
-            'options': {},
-            'options_normalized': [],
-            'formulas': [],
-            'question_type': 'unknown',
-            'weights': {},
-            'ocr_confidence': 0.0,
-            'extraction_success': False,
-            'warnings': []
-        }
+        single = isinstance(texts, str)
 
-        # Preprocess image
-        img_array = self._load_image(image)
-        if img_array is None:
-            result['warnings'].append('Failed to load image')
-            return result
+        if single:
+            texts = [texts]
 
-        preprocessed = self.preprocessor.preprocess(img_array)
+        texts = [
+            simple_normalize_text(text)
+            for text in texts
+        ]
 
-        # Extract text via OCR
-        ocr_results, ocr_success = self.ocr_engine.extract_text(preprocessed)
-        if not ocr_success:
-            result['warnings'].append('OCR extraction failed')
-            return result
+        if not texts:
+            return np.empty((0, 0), dtype=np.float32)
 
-        if not ocr_results:
-            result['warnings'].append('No text detected')
-            return result
+        results = [None] * len(texts)
 
-        # Compute average OCR confidence
-        avg_confidence = sum(r.confidence for r in ocr_results) / len(ocr_results)
-        result['ocr_confidence'] = avg_confidence
+        chinese_indices = []
+        chinese_texts = []
 
-        if avg_confidence < 0.5:
-            result['warnings'].append(f'Low OCR confidence: {avg_confidence:.2f}')
+        english_indices = []
+        english_texts = []
 
-        # Concatenate OCR text
-        full_text = '\n'.join(r.text for r in ocr_results)
+        for index, text in enumerate(texts):
+            if not text:
+                continue
 
-        # Parse question structure
-        parsed = self.parser.parse(full_text)
-        result['question_type'] = parsed['question_type']
-
-        # Extract stem if enabled
-        if self.components_config.get('stem', {}).get('enabled', True):
-            result['stem'] = parsed['stem']
-            result['weights']['stem'] = self.components_config.get('stem', {}).get('weight', 0.6)
-
-            # Generate stem embedding
-            if result['stem']:
-                result['stem_embedding'] = self._encode_text(result['stem'])
-
-        # Extract options if enabled
-        if self.components_config.get('options', {}).get('enabled', True):
-            result['options'] = parsed['options']
-            result['weights']['options'] = self.components_config.get('options', {}).get('weight', 0.3)
-
-            # Normalize options
-            if result['options']:
-                normalization_rules = self.components_config.get('options', {}).get('normalization', [])
-                option_values = list(result['options'].values())
-                result['options_normalized'] = normalize_options(option_values, normalization_rules)
-
-        # Extract formulas if enabled
-        if self.components_config.get('formulas', {}).get('enabled', False):
-            if self.formula_extractor:
-                # Extract formulas from image regions (simplified - would need region detection)
-                formulas = self.parser.extract_formulas(full_text)
-                result['formulas'] = formulas
-                result['weights']['formulas'] = self.components_config.get('formulas', {}).get('weight', 0.1)
-            else:
-                result['warnings'].append('Formula extraction enabled but extractor not initialized')
-
-        result['extraction_success'] = parsed['parse_success']
-
-        return result
-
-    def _load_image(self, image: Union[str, Path, np.ndarray, Image.Image]) -> Optional[np.ndarray]:
-        """Load image into numpy array format."""
-        try:
-            if isinstance(image, (str, Path)):
-                import cv2
-                img = cv2.imread(str(image))
-                return img
-            elif isinstance(image, Image.Image):
-                import cv2
-                img_array = np.array(image)
-                if len(img_array.shape) == 3:
-                    img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-                return img_array
-            elif isinstance(image, np.ndarray):
-                return image
-            else:
-                return None
-        except Exception as e:
-            logger.error(f"Failed to load image: {e}")
-            return None
-
-    def _encode_text(self, text: str, language: str = 'auto') -> Optional[np.ndarray]:
-        """Encode text to embedding vector.
-
-        Args:
-            text: Input text
-            language: Language hint ('auto', 'zh', 'en')
-
-        Returns:
-            768-dim embedding vector or None if encoding failed
-        """
-        if not text:
-            return None
-
-        # Detect language if auto
-        if language == 'auto':
             language = self._detect_language(text)
 
-        # Select encoder
-        if language == 'zh' and self._chinese_encoder is not None:
-            encoder = self._chinese_encoder
-            tokenizer = self._chinese_tokenizer
-        elif language == 'en' and self._english_encoder is not None:
-            encoder = self._english_encoder
-            tokenizer = self._english_tokenizer
-        else:
-            logger.warning(f"No encoder available for language: {language}")
-            return None
+            if language == "zh":
+                chinese_indices.append(index)
+                chinese_texts.append(text)
 
-        try:
-            # Tokenize
-            inputs = tokenizer(
-                text,
-                return_tensors='pt',
-                truncation=True,
-                max_length=512,
-                padding=True
+            elif language == "en":
+                english_indices.append(index)
+                english_texts.append(text)
+
+            else:
+                logger.warning(
+                    "Unsupported language for text[%d]",
+                    index,
+                )
+
+        # Chinese
+        if chinese_texts:
+            if self._chinese_encoder is None:
+                raise RuntimeError("Chinese embedding model is not initialized.")
+
+            embeddings = self._chinese_encoder.encode(
+                chinese_texts,
+                batch_size=len(chinese_texts),
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+                show_progress_bar=False,
             )
 
-            # Encode
-            with torch.no_grad():
-                outputs = encoder(**inputs)
-                # Use [CLS] token embedding
-                embedding = outputs.last_hidden_state[:, 0, :].squeeze().numpy()
+            for index, embedding in zip(chinese_indices, embeddings):
+                results[index] = embedding.astype(np.float32)
 
-            return embedding
+        # English
+        if english_texts:
+            if self._english_encoder is None:
+                raise RuntimeError("English embedding model is not initialized.")
 
-        except Exception as e:
-            logger.error(f"Text encoding failed: {e}")
-            return None
+            embeddings = self._english_encoder.encode(
+                english_texts,
+                batch_size=len(english_texts),
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
 
+            for index, embedding in zip(english_indices, embeddings):
+                results[index] = embedding.astype(np.float32)
+
+        valid_embeddings = [
+            embedding for embedding in results
+            if embedding is not None
+        ]
+
+        if not valid_embeddings:
+            return np.empty((0, 0), dtype=np.float32)
+
+        dimensions = {
+            embedding.shape[0]
+            for embedding in valid_embeddings
+        }
+
+        if len(dimensions) > 1:
+            raise ValueError(
+                f"Embedding dimensions are inconsistent: {dimensions}. "
+                "Chinese and English embeddings must use separate indexes."
+            )
+
+        dimension = valid_embeddings[0].shape[0]
+
+        output = np.zeros(
+            (len(texts), dimension),
+            dtype=np.float32,
+        )
+
+        for index, embedding in enumerate(results):
+            if embedding is not None:
+                output[index] = embedding
+
+        return output[0] if single else output
+    
     def _detect_language(self, text: str) -> str:
-        """Detect language from text.
+        """Detect whether text is primarily Chinese or English."""
+        chinese = 0
+        english = 0
 
-        Args:
-            text: Input text
+        for char in text:
+            if "\u4e00" <= char <= "\u9fff":
+                chinese += 1
+            elif char.isascii() and char.isalpha():
+                english += 1
 
-        Returns:
-            Language code ('zh' or 'en')
-        """
-        # Simple heuristic: if contains Chinese characters, use Chinese model
-        chinese_chars = sum(1 for c in text if '一' <= c <= '鿿')
-        total_chars = len(text)
+        if chinese == 0 and english == 0:
+            return "unknown"
 
-        if total_chars == 0:
-            return 'en'
-
-        chinese_ratio = chinese_chars / total_chars
-        return 'zh' if chinese_ratio > 0.1 else 'en'
-
-    def extract_batch(
-        self,
-        images: List[Union[str, Path, np.ndarray, Image.Image]]
-    ) -> List[Dict]:
-        """Extract features from multiple images.
-
-        Args:
-            images: List of images
-
-        Returns:
-            List of feature dictionaries
-        """
-        results = []
-        for image in images:
-            features = self.extract(image)
-            results.append(features)
-        return results
+        return "zh" if chinese >= english else "en"
+                

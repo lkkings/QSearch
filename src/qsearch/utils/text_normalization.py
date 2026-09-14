@@ -1,6 +1,6 @@
 """Text normalization functions for consistent matching.
 
-Provides various normalization strategies for text, options, and formulas.
+Provides normalization strategies applied to OCR text before encoding or comparison.
 """
 
 import re
@@ -112,58 +112,6 @@ def to_lowercase(text: str) -> str:
     return text.lower()
 
 
-def sort_text(text: str, delimiter: str = None) -> str:
-    """Sort words/characters in text.
-
-    Args:
-        text: Input text
-        delimiter: Delimiter to split on. None = split by character
-
-    Returns:
-        Text with sorted components
-    """
-    if delimiter is not None:
-        parts = text.split(delimiter)
-        parts.sort()
-        return delimiter.join(parts)
-    else:
-        # Sort characters
-        return ''.join(sorted(text))
-
-
-def normalize_options(options: List[str], strategies: List[str]) -> List[str]:
-    """Apply normalization strategies to option list.
-
-    Args:
-        options: List of option texts
-        strategies: List of normalization strategies to apply
-
-    Returns:
-        List of normalized options
-    """
-    normalized = options.copy()
-
-    for strategy in strategies:
-        if strategy == 'remove_whitespace':
-            normalized = [remove_whitespace(opt) for opt in normalized]
-        elif strategy == 'normalize_whitespace':
-            normalized = [normalize_whitespace(opt) for opt in normalized]
-        elif strategy == 'normalize_punctuation':
-            normalized = [normalize_punctuation(opt) for opt in normalized]
-        elif strategy == 'remove_punctuation':
-            normalized = [remove_punctuation(opt) for opt in normalized]
-        elif strategy == 'lowercase':
-            normalized = [to_lowercase(opt) for opt in normalized]
-        elif strategy == 'sort':
-            normalized = sorted(normalized)
-        elif strategy == 'unicode':
-            normalized = [normalize_unicode(opt) for opt in normalized]
-        else:
-            raise ValueError(f"Unknown normalization strategy: {strategy}")
-
-    return normalized
-
-
 def normalize_text(text: str, strategies: List[str]) -> str:
     """Apply normalization strategies to text.
 
@@ -209,35 +157,3 @@ def compare_normalized(text1: str, text2: str, strategies: List[str]) -> bool:
     norm1 = normalize_text(text1, strategies)
     norm2 = normalize_text(text2, strategies)
     return norm1 == norm2
-
-
-def normalize_formula(formula: str) -> str:
-    """Normalize mathematical formula for comparison.
-
-    Args:
-        formula: LaTeX or text formula
-
-    Returns:
-        Normalized formula
-    """
-    if not formula:
-        return ""
-
-    normalized = formula.strip()
-
-    # Remove extra whitespace
-    normalized = ' '.join(normalized.split())
-
-    # Normalize common math symbols
-    replacements = {
-        '×': '*',
-        '÷': '/',
-        '·': '*',
-        '²': '^2',
-        '³': '^3',
-    }
-
-    for old, new in replacements.items():
-        normalized = normalized.replace(old, new)
-
-    return normalized

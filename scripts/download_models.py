@@ -1,74 +1,79 @@
-"""
-Model download and verification script for QSearch.
-Downloads and verifies pretrained models needed for the system.
-Models are saved to the project's models/ directory.
-"""
-import sys
-import os
-from pathlib import Path
-from transformers import AutoTokenizer, AutoModel
-from sentence_transformers import SentenceTransformer
+"""Download all QSearch models into the project-local ``models`` folder."""
 
-# Get project root (parent of scripts directory)
-PROJECT_ROOT = Path(__file__).parent.parent
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+from sentence_transformers import SentenceTransformer
+from transformers import AutoModel, AutoTokenizer
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODELS_DIR = PROJECT_ROOT / "models"
 
-def download_models():
-    """Download and verify all required pretrained models."""
 
-    # Create models directory
-    MODELS_DIR.mkdir(exist_ok=True)
-    print(f"Models will be saved to: {MODELS_DIR}")
-
-    # Chinese RoBERTa model path
-    chinese_model_path = MODELS_DIR / "chinese-roberta-wwm-ext"
-
-    print("\nDownloading Chinese RoBERTa model...")
+def download_transformers_model(repo_id: str, save_path: Path) -> bool:
+    """Download and persist a text encoder in Transformers format."""
+    print(f"\nDownloading {repo_id} -> {save_path}")
     try:
-        tokenizer_ch = AutoTokenizer.from_pretrained(
-            'hfl/chinese-roberta-wwm-ext',
-            cache_dir=str(MODELS_DIR)
-        )
-        model_ch = AutoModel.from_pretrained(
-            'hfl/chinese-roberta-wwm-ext',
-            cache_dir=str(MODELS_DIR)
-        )
-
-        # Save to local directory
-        tokenizer_ch.save_pretrained(str(chinese_model_path))
-        model_ch.save_pretrained(str(chinese_model_path))
-
-        print("✓ Chinese RoBERTa model downloaded and saved")
-        print(f"  Location: {chinese_model_path}")
-        print(f"  Model hidden size: {model_ch.config.hidden_size}")
-    except Exception as e:
-        print(f"✗ Failed to load Chinese RoBERTa: {e}")
+        tokenizer = AutoTokenizer.from_pretrained(repo_id, cache_dir=str(MODELS_DIR))
+        model = AutoModel.from_pretrained(repo_id, cache_dir=str(MODELS_DIR))
+        save_path.mkdir(parents=True, exist_ok=True)
+        tokenizer.save_pretrained(str(save_path))
+        model.save_pretrained(str(save_path), safe_serialization=True)
+        return True
+    except Exception as exc:
+        print(f"Failed to download {repo_id}: {exc}")
         return False
 
-    # English sentence transformer model path
-    english_model_path = MODELS_DIR / "all-mpnet-base-v2"
 
-    print("\nDownloading English sentence transformer model...")
+def download_sentence_transformer(repo_id: str, save_path: Path) -> bool:
+    """Download and persist a SentenceTransformer model."""
+    print(f"\nDownloading {repo_id} -> {save_path}")
     try:
-        model_en = SentenceTransformer(
-            'sentence-transformers/all-mpnet-base-v2',
-            cache_folder=str(MODELS_DIR)
-        )
-
-        # Save to local directory
-        model_en.save(str(english_model_path))
-
-        print("✓ English sentence transformer downloaded and saved")
-        print(f"  Location: {english_model_path}")
-        print(f"  Embedding dimension: {model_en.get_embedding_dimension()}")
-    except Exception as e:
-        print(f"✗ Failed to load English model: {e}")
+        model = SentenceTransformer(repo_id, cache_folder=str(MODELS_DIR))
+        save_path.mkdir(parents=True, exist_ok=True)
+        model.save(str(save_path))
+        return True
+    except Exception as exc:
+        print(f"Failed to download {repo_id}: {exc}")
         return False
 
-    print("\nAll models downloaded and verified successfully!")
-    print(f"Total models saved in: {MODELS_DIR}")
-    return True
+
+def download_ocr_model() -> bool:
+    """Download the Transformers OCR model to ``models/got-ocr-2.0-hf``."""
+    print("\nDownloading Transformers OCR model")
+    try:
+        # Import after the text models so this script remains useful when only
+        # diagnosing an OCR dependency problem.
+        from qsearch.features.ocr_engine import OCREngine
+
+        engine = OCREngine(use_gpu=False)
+        print(f"OCR model is ready at {engine.model_dir}")
+        return True
+    except Exception as exc:
+        print(f"Failed to download the OCR model: {exc}")
+        return False
+
+
+def download_models() -> bool:
+    """Download all required models and return whether every download worked."""
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    jobs = [
+        download_transformers_model(
+            "hfl/chinese-roberta-wwm-ext",
+            MODELS_DIR / "chinese-roberta-wwm-ext",
+        ),
+        download_sentence_transformer(
+            "sentence-transformers/all-mpnet-base-v2",
+            MODELS_DIR / "all-mpnet-base-v2",
+        ),
+        download_ocr_model(),
+    ]
+    succeeded = sum(jobs)
+    print(f"\nModels ready: {succeeded}/{len(jobs)} in {MODELS_DIR}")
+    return succeeded == len(jobs)
+
 
 if __name__ == "__main__":
-    success = download_models()
-    sys.exit(0 if success else 1)
+    sys.exit(0 if download_models() else 1)

@@ -1,0 +1,191 @@
+/* QSearch WebUI — 状态标示：chip 与 badge
+ *
+ * 这两类元素承担了 D2 的颜色语义边界，形态差异是它的第二条通道：
+ *
+ *   .qs-chip   低饱和 + 描边 + 无强调    机器输出（置信度、任务状态、索引状态）
+ *   .qs-badge  高饱和 + 实心 + 带图标    人的判断（命中 / 未命中 / 跳过）
+ *
+ * 即便颜色完全不可辨（灰度、红绿色盲），chip 与 badge 也能靠填充方式与
+ * 图标区分开 —— 而这正是「机器猜的」与「我判的」之间的区别，标注质量
+ * 依赖它不被混淆。
+ *
+ * 与之配套的 Python 侧在 ui/components.py。
+ */
+
+/* ============================================================
+ * 图标注入（任务 11.3）
+ *
+ * chip / badge 走 unsafe_allow_html 的原始 HTML，拿不到 Streamlit 的
+ * `:material/xxx:` 短代码（那只在 Markdown 文本里生效），所以这里用
+ * ::before 注入字形。
+ *
+ * 字体不自带：Streamlit 静态包已自托管 `Material Symbols Rounded`
+ * （static/media/MaterialSymbols-Rounded.*.woff2，相对 url 声明），
+ * 断网可用，故直接复用其 family 名，不重复打包一份。
+ *
+ * content 写连字名（Material Symbols 靠 liga 把 "check_circle" 渲染成
+ * 字形）。字体不可用时连字不生效，会露出原文 —— 这难看，但语义不丢：
+ * 每个 chip/badge 的文案本身已完整表意（任务 11.7），故图标是冗余通道
+ * 而非唯一通道。aria-hidden 由 speak:never + 文案冗余共同保证。
+ * ============================================================ */
+.qs-icon::before {
+  font-family: "Material Symbols Rounded";
+  font-weight: 400;
+  font-style: normal;
+  font-size: 1em;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  direction: ltr;
+  font-feature-settings: "liga";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  vertical-align: -0.125em;
+  margin-right: 0.25em;
+  speak: never;
+}
+
+/* 标注结果四取值 —— 四个形状互不相同（任务 11.6） */
+.qs-icon--hit::before { content: "check_circle"; }
+.qs-icon--miss::before { content: "cancel"; }
+.qs-icon--skip::before { content: "do_not_disturb_on"; }
+.qs-icon--unlabeled::before { content: "radio_button_unchecked"; }
+
+/* 任务状态五取值 —— 五个形状互不相同（任务 11.6） */
+.qs-icon--task-pending::before { content: "hourglass_empty"; }
+.qs-icon--task-running::before { content: "sync"; }
+.qs-icon--task-done::before { content: "task_alt"; }
+.qs-icon--task-failed::before { content: "error"; }
+.qs-icon--task-cancelled::before { content: "block"; }
+.qs-icon--task-unknown::before { content: "pending"; }
+
+/* 索引状态 */
+.qs-icon--index-built::before { content: "check_circle"; }
+.qs-icon--index-missing::before { content: "warning"; }
+
+/* ============================================================
+ * chip —— 机器输出。描边式，不与实心的决策徽章争夺注意力。
+ * ============================================================ */
+.qs-chip {
+  display: inline-block;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-row);
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.5;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* 置信等级 */
+.qs-chip--conf-high {
+  background: var(--info-high-bg);
+  color: var(--info-high-text);
+  border-color: var(--info-high);
+}
+
+.qs-chip--conf-mid {
+  background: var(--info-mid-bg);
+  color: var(--info-mid-text);
+  border-color: var(--info-mid);
+}
+
+.qs-chip--conf-low {
+  background: var(--info-low-bg);
+  color: var(--info-low-text);
+  border-color: var(--info-low);
+}
+
+.qs-chip--conf-unknown {
+  background: var(--surface-2);
+  color: var(--text-3);
+  border-color: var(--border-hair);
+}
+
+/* 任务状态 */
+.qs-chip--task-pending {
+  background: var(--surface-2);
+  color: var(--text-2);
+  border-color: var(--task-pending);
+}
+
+.qs-chip--task-running {
+  background: var(--info-mid-bg);
+  color: var(--info-mid-text);
+  border-color: var(--task-running);
+}
+
+.qs-chip--task-done {
+  background: var(--info-high-bg);
+  color: var(--task-done);
+  border-color: var(--task-done);
+}
+
+.qs-chip--task-failed {
+  background: var(--info-low-bg);
+  color: var(--info-low-text);
+  border-color: var(--task-failed);
+}
+
+.qs-chip--task-cancelled {
+  background: var(--surface-2);
+  color: var(--text-2);
+  border-color: var(--task-cancelled);
+}
+
+/* 索引状态。未构建的库不能用于搜索，误读的代价是白等一次失败的搜索，
+ * 故图标与文字都参与标示，不依赖颜色。 */
+.qs-chip--index-built {
+  background: var(--info-high-bg);
+  color: var(--task-done);
+  border-color: var(--task-done);
+}
+
+.qs-chip--index-missing {
+  background: var(--info-mid-bg);
+  color: var(--info-mid-text);
+  border-color: var(--info-mid);
+}
+
+/* ============================================================
+ * badge —— 人的判断。实心高饱和，深色前景压在亮色上取得对比度。
+ * ============================================================ */
+.qs-badge {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-row);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.qs-badge--hit {
+  background: var(--hit);
+  color: var(--on-hit);
+}
+
+.qs-badge--miss {
+  background: var(--miss);
+  color: var(--on-miss);
+}
+
+.qs-badge--skip {
+  background: var(--skip);
+  color: var(--on-skip);
+}
+
+/* 未标注 —— 有意保持低调：它是缺省状态，不是一种判断。
+ * 描边而非实心，与 chip 同形，因为它同样不是人做出的决定。
+ *
+ * 前景取 text-2 而非 text-3：text-3 是为路径、ID、时间戳这类可略读的
+ * 附属信息准备的，压在 surface-2 上仅 3.46:1。而「未标注」是标注员需要
+ * 主动扫读的状态 —— 低调不能低到读不清。text-2 约 6.4:1。
+ */
+.qs-badge--unlabeled {
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid var(--border-hair);
+  font-weight: 500;
+}

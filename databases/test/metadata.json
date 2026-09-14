@@ -1,0 +1,17 @@
+{
+  "name": "test",
+  "created_at": "2026-09-14T09:26:00.707701Z",
+  "image_count": 2000,
+  "config_source": "custom",
+  "config_preset": null,
+  "config_yaml": "text:\n  ocr:\n    engine: paddleocr\n    languages:\n    - ch\n    - en\n    confidence_threshold: 0.5\n  encoding:\n    chinese_model: hfl/chinese-roberta-wwm-ext\n    english_model: sentence-transformers/all-mpnet-base-v2\n    embedding_dim: 768\n    max_length: 512\n    batch_size: 4\nimage:\n  components:\n    perceptual_hash:\n      enabled: true\n      algorithm: dHash\n      hash_size: 16\n    deep_features:\n      enabled: false\n      model: efficientnet_b4\n      output_dim: 512\n  batch_size: 4\nindex:\n  type: IVFFlat\n  nlist: 100\n  nprobe: 10\nname: balanced\ndescription: Balanced configuration with moderate thresholds (precision/recall trade-off)\nmatching:\n  exact_match:\n    enabled: true\n    criteria:\n      perceptual_hash:\n        max_distance: 5\n  content_match:\n    enabled: true\n    stage1:\n      text_similarity_threshold: 0.75\n      top_k: 100\n    optional_conditions:\n      visual_similarity:\n        enabled: true\n        weight: 0.05\n    scoring:\n      method: weighted_sum\n      threshold: 0.85\n  output:\n    top_k: 10\n    grouping:\n      by_match_type: true\n    include_details:\n      feature_scores: true\n      debug_info: false\n",
+  "index_built": false,
+  "statistics": {
+    "total_queries": 0,
+    "completed_queries": 0,
+    "unlabeled_queries": 0,
+    "total_candidates": 0,
+    "labeled_candidates": 0,
+    "hit_rate": 0.0
+  }
+}

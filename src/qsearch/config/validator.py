@@ -1,7 +1,7 @@
 """Configuration dependency validation.
 
-Validates that configuration settings have consistent dependencies (e.g., formula matching
-requires formula extraction to be enabled).
+Validates that configuration settings have consistent dependencies (e.g., visual
+similarity matching requires deep image features to be enabled).
 """
 
 from typing import Any, Dict, List
@@ -21,50 +21,17 @@ class DependencyValidator:
         """
         errors = []
 
-        # Check formula matching dependency
-        errors.extend(self._check_formula_dependency(config))
-
         # Check visual similarity dependency
         errors.extend(self._check_visual_similarity_dependency(config))
-
-        # Check feature weight consistency
-        errors.extend(self._check_feature_weights(config))
 
         # Check threshold ranges
         errors.extend(self._check_threshold_ranges(config))
 
+        # Check Faiss index parameter consistency
+        errors.extend(self._check_index_params(config))
+
         # Check model availability (basic check)
         errors.extend(self._check_model_references(config))
-
-        return errors
-
-    def _check_formula_dependency(self, config: Dict[str, Any]) -> List[str]:
-        """Check if formula matching requires formula extraction enabled."""
-        errors = []
-
-        # Navigate to formula matching setting
-        formula_match_enabled = (
-            config.get("matching", {})
-            .get("content_match", {})
-            .get("stage2", {})
-            .get("optional_conditions", {})
-            .get("formula_match", {})
-            .get("enabled", False)
-        )
-
-        # Navigate to formula extraction setting
-        formula_extraction_enabled = (
-            config.get("text", {})
-            .get("components", {})
-            .get("formulas", {})
-            .get("enabled", False)
-        )
-
-        if formula_match_enabled and not formula_extraction_enabled:
-            errors.append(
-                "Formula matching is enabled but formula extraction is disabled. "
-                "Set text.components.formulas.enabled to true."
-            )
 
         return errors
 
@@ -76,7 +43,6 @@ class DependencyValidator:
         visual_similarity_enabled = (
             config.get("matching", {})
             .get("content_match", {})
-            .get("stage2", {})
             .get("optional_conditions", {})
             .get("visual_similarity", {})
             .get("enabled", False)
@@ -98,30 +64,57 @@ class DependencyValidator:
 
         return errors
 
-    def _check_feature_weights(self, config: Dict[str, Any]) -> List[str]:
-        """Check if feature weights are valid and issue warnings if they don't sum to 1.0."""
+    def _check_index_params(self, config: Dict[str, Any]) -> List[str]:
+        """Check Faiss index parameters against each other and the vector dimension.
+
+        These only fail at build time otherwise, after feature extraction has
+        already run, so catching them up front saves a full extraction pass.
+        """
         errors = []
 
-        # Check text component weights
-        text_components = config.get("text", {}).get("components", {})
-        weights = []
+        index_config = config.get("index", {})
+        if not index_config:
+            return errors
 
-        for component in ["stem", "options", "formulas"]:
-            comp_config = text_components.get(component, {})
-            if comp_config.get("enabled", False):
-                weight = comp_config.get("weight")
-                if weight is not None:
-                    weights.append(weight)
+        index_type = index_config.get("type", "Flat")
+        dimension = (
+            config.get("text", {})
+            .get("encoding", {})
+            .get("embedding_dim", 768)
+        )
 
-        if weights:
-            total = sum(weights)
-            if total > 1.0:
+        if index_type == "IVFPQ":
+            m_pq = index_config.get("m_pq", 16)
+            if dimension % m_pq != 0:
                 errors.append(
-                    f"Text component weights sum to {total:.2f} which exceeds 1.0. "
-                    "Weights will be normalized, but consider adjusting manually."
+                    f"IVFPQ m_pq={m_pq} must divide embedding_dim={dimension}. "
+                    f"Pick a divisor, e.g. {self._divisors(dimension)}."
+                )
+
+        if index_type in ("IVFFlat", "IVFPQ"):
+            nlist = index_config.get("nlist", 100)
+            nprobe = index_config.get("nprobe", 10)
+            if nprobe > nlist:
+                errors.append(
+                    f"nprobe={nprobe} exceeds nlist={nlist}; "
+                    "searching more cells than exist has no effect."
                 )
 
         return errors
+
+    @staticmethod
+    def _divisors(dimension: int, limit: int = 128) -> str:
+        """List plausible PQ sub-vector counts for a dimension.
+
+        Args:
+            dimension: Vector dimension
+            limit: Largest divisor worth suggesting
+
+        Returns:
+            Comma-separated divisors
+        """
+        found = [d for d in range(1, min(dimension, limit) + 1) if dimension % d == 0]
+        return ", ".join(str(d) for d in found[-6:])
 
     def _check_threshold_ranges(self, config: Dict[str, Any]) -> List[str]:
         """Check that all thresholds are in valid ranges."""
@@ -156,7 +149,7 @@ class DependencyValidator:
                 )
 
         # Check OCR confidence threshold
-        ocr_threshold = config.get("ocr", {}).get("confidence_threshold")
+        ocr_threshold = config.get("text", {}).get("ocr", {}).get("confidence_threshold")
 
         if ocr_threshold is not None:
             if ocr_threshold < 0.0 or ocr_threshold > 1.0:

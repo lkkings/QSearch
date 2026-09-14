@@ -13,40 +13,15 @@ FEATURES_SCHEMA = {
         "text": {
             "type": "object",
             "properties": {
-                "components": {
+                "ocr": {
                     "type": "object",
                     "properties": {
-                        "stem": {
-                            "type": "object",
-                            "properties": {
-                                "enabled": {"type": "boolean"},
-                                "weight": {"type": "number", "minimum": 0, "maximum": 1}
-                            },
-                            "required": ["enabled"]
+                        "engine": {"type": "string", "enum": ["transformers"]},
+                        "languages": {
+                            "type": "array",
+                            "items": {"type": "string", "enum": ["ch", "en"]}
                         },
-                        "options": {
-                            "type": "object",
-                            "properties": {
-                                "enabled": {"type": "boolean"},
-                                "weight": {"type": "number", "minimum": 0, "maximum": 1},
-                                "normalization": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string",
-                                        "enum": ["remove_whitespace", "normalize_punctuation", "sort", "lowercase"]
-                                    }
-                                }
-                            },
-                            "required": ["enabled"]
-                        },
-                        "formulas": {
-                            "type": "object",
-                            "properties": {
-                                "enabled": {"type": "boolean"},
-                                "weight": {"type": "number", "minimum": 0, "maximum": 1}
-                            },
-                            "required": ["enabled"]
-                        }
+                        "confidence_threshold": {"type": "number", "minimum": 0, "maximum": 1}
                     }
                 },
                 "encoding": {
@@ -54,7 +29,9 @@ FEATURES_SCHEMA = {
                     "properties": {
                         "chinese_model": {"type": "string"},
                         "english_model": {"type": "string"},
-                        "embedding_dim": {"type": "integer", "minimum": 1}
+                        "embedding_dim": {"type": "integer", "minimum": 1},
+                        "max_length": {"type": "integer", "minimum": 16, "maximum": 512},
+                        "batch_size": {"type": "integer", "minimum": 1, "maximum": 512}
                     }
                 }
             }
@@ -88,21 +65,17 @@ FEATURES_SCHEMA = {
                 "batch_size": {"type": "integer", "minimum": 1, "maximum": 512}
             }
         },
-        "ocr": {
+        "index": {
             "type": "object",
             "properties": {
-                "engine": {"type": "string", "enum": ["paddleocr"]},
-                "languages": {
-                    "type": "array",
-                    "items": {"type": "string", "enum": ["ch", "en"]}
-                },
-                "confidence_threshold": {"type": "number", "minimum": 0, "maximum": 1}
-            }
-        },
-        "metadata": {
-            "type": "object",
-            "properties": {
-                "question_type_detection": {"type": "boolean"}
+                "type": {"type": "string", "enum": ["Flat", "IVFFlat", "IVFPQ", "HNSW"]},
+                "nlist": {"type": "integer", "minimum": 1, "maximum": 65536},
+                "nprobe": {"type": "integer", "minimum": 1, "maximum": 4096},
+                "m_pq": {"type": "integer", "minimum": 1, "maximum": 128},
+                "nbits": {"type": "integer", "minimum": 4, "maximum": 16},
+                "hnsw_m": {"type": "integer", "minimum": 4, "maximum": 128},
+                "ef_construction": {"type": "integer", "minimum": 8, "maximum": 512},
+                "ef_search": {"type": "integer", "minimum": 8, "maximum": 512}
             }
         }
     }
@@ -144,57 +117,16 @@ MATCHING_SCHEMA = {
                     },
                     "required": ["text_similarity_threshold", "top_k"]
                 },
-                "stage2": {
+                "optional_conditions": {
                     "type": "object",
                     "properties": {
-                        "required_conditions": {
+                        "visual_similarity": {
                             "type": "object",
                             "properties": {
-                                "stem_match": {
-                                    "type": "object",
-                                    "properties": {
-                                        "enabled": {"type": "boolean"},
-                                        "max_edit_distance": {"type": "integer", "minimum": 0}
-                                    },
-                                    "required": ["enabled"]
-                                },
-                                "options_match": {
-                                    "type": "object",
-                                    "properties": {
-                                        "enabled": {"type": "boolean"},
-                                        "order_independent": {"type": "boolean"}
-                                    },
-                                    "required": ["enabled"]
-                                },
-                                "question_type_match": {
-                                    "type": "object",
-                                    "properties": {
-                                        "enabled": {"type": "boolean"}
-                                    },
-                                    "required": ["enabled"]
-                                }
-                            }
-                        },
-                        "optional_conditions": {
-                            "type": "object",
-                            "properties": {
-                                "formula_match": {
-                                    "type": "object",
-                                    "properties": {
-                                        "enabled": {"type": "boolean"},
-                                        "weight": {"type": "number", "minimum": 0, "maximum": 1}
-                                    },
-                                    "required": ["enabled"]
-                                },
-                                "visual_similarity": {
-                                    "type": "object",
-                                    "properties": {
-                                        "enabled": {"type": "boolean"},
-                                        "weight": {"type": "number", "minimum": 0, "maximum": 1}
-                                    },
-                                    "required": ["enabled"]
-                                }
-                            }
+                                "enabled": {"type": "boolean"},
+                                "weight": {"type": "number", "minimum": 0, "maximum": 1}
+                            },
+                            "required": ["enabled"]
                         }
                     }
                 },
@@ -202,8 +134,6 @@ MATCHING_SCHEMA = {
                     "type": "object",
                     "properties": {
                         "method": {"type": "string", "enum": ["weighted_sum"]},
-                        "required_weight": {"type": "number", "minimum": 0, "maximum": 1},
-                        "optional_weight": {"type": "number", "minimum": 0, "maximum": 1},
                         "threshold": {"type": "number", "minimum": 0, "maximum": 1}
                     },
                     "required": ["method", "threshold"]

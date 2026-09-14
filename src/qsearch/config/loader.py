@@ -9,6 +9,8 @@ from typing import Any, Dict, Optional, Union
 
 import yaml
 
+from qsearch.config import presets
+
 
 class ConfigLoader:
     """Loads and manages YAML-based configuration files.
@@ -119,6 +121,20 @@ class ConfigLoader:
     def base_config(self) -> Dict[str, Any]:
         """Get copy of base configuration."""
         return copy.deepcopy(self._base_config)
+
+    def load_preset(self, preset_name: str) -> Dict[str, Any]:
+        """Load a configuration preset by name.
+
+        Args:
+            preset_name: Name of the preset (conservative, balanced, aggressive)
+
+        Returns:
+            Configuration dictionary from the preset
+
+        Raises:
+            ValueError: If preset name is not recognized
+        """
+        return presets.get_preset(preset_name)
 
     def load_multiple(self, *paths: Union[str, Path]) -> Dict[str, Any]:
         """Load and merge multiple configuration files.

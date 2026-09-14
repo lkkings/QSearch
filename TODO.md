@@ -1,0 +1,4 @@
+1.TextFeatureExtractor需要可以使用GPU
+2.索引构建时需要传入batch_size参数，需要在文本特征提取时和图片特征提取时可以进行批处理
+3.数据检索时需要传入batch_size参数，需要在文本特征提取时和图片特征提取时可以进行批处理
+4.完善脚本scripts\index_database.py和scripts\search_queries.py，脚本输出产物需要和webui端输出产物一致（执行完成后可以在web端查看数据库和标注）

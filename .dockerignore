@@ -1,0 +1,30 @@
+.git
+.github
+.agents
+.claude
+.codex
+.playwright-mcp
+.pytest_cache
+.venv
+
+**/__pycache__
+**/*.py[cod]
+**/.DS_Store
+
+.env
+.env.*
+!.env.example
+
+# Runtime data belongs in mounted volumes, not in the image.
+data
+databases
+models
+
+# Development-only files are not needed by the runtime image.
+docs
+openspec
+test
+tests
+*.log
+*.db
+*.sqlite*

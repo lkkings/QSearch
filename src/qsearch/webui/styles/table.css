@@ -1,0 +1,76 @@
+/* QSearch WebUI — 紧凑表格
+ *
+ * 控制面板类页面的列表（数据库、任务）用这套原语。
+ *
+ * 原实现用 st.metric + 每行 st.divider()：metric 高约 70px，divider 连同
+ * 上下外边距约 50px，两者合计使每个条目占掉近 200px 垂直空间，一屏放不下
+ * 三个库。这里的目标是把条目高度压到 40px 上下。
+ *
+ * 行圆角走 --radius-row（2px）而非 --radius-card（10px）：统一半径会浪费
+ * 横向空间，也不像工作台。差异化是有意的。
+ */
+
+/* 表头 */
+.qs-th {
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid var(--border-hair);
+}
+
+/* 单元格 —— 单行不换行，超出以省略号截断，避免一个长名字把整行撑高 */
+.qs-td {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--h-compact);
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.88rem;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qs-td--name {
+  font-weight: 600;
+}
+
+/* 名称下的次要信息（创建日期）同处一行右侧，不另起一行 */
+.qs-td-sub {
+  color: var(--text-3);
+  font-size: 0.76rem;
+  font-weight: 400;
+}
+
+/* 数值列 —— 等宽数字使跨行比较时数位对齐 */
+.qs-td--num {
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+ * 行悬停
+ *
+ * 用状态层而非位移。Streamlit 为 st.container(key=...) 生成
+ * .st-key-<key>（任务 3.2 实测确认该机制稳定），故按 key 前缀定位。
+ * ============================================================ */
+[class*="st-key-qsrow_"] {
+  border-radius: var(--radius-row);
+  border-bottom: 1px solid var(--border-hair);
+  transition: background var(--dur-state) var(--ease);
+}
+
+[class*="st-key-qsrow_"]:hover {
+  background: var(--state-hover);
+}
+
+/* 行内操作按钮压到紧凑档 —— 它们是低频操作，不需要决策按钮的尺寸 */
+[class*="st-key-qsrow_"] .stButton button {
+  min-height: var(--h-compact);
+  padding: 0 var(--space-2);
+  font-size: 0.8rem;
+}
